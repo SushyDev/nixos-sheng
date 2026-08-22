@@ -4,6 +4,7 @@
 {
   imports = [
     ./hardware.nix
+    ./sheng-boot-slot.nix
     ./xiaomi-sheng-services.nix
     ../rootfs/builder.nix
   ];
