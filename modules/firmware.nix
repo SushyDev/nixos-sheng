@@ -52,6 +52,23 @@ in
     # qteesupplicant/sfsconfig are running.
     services.fprintd.enable = true;
 
+    # The FPC1553 libfprint driver hardcodes FHS defaults:
+    #
+    #   #define FPC1553_DEFAULT_TA "/usr/lib/firmware/fpcsheng.elf"
+    #
+    # which does not exist here, so the trusted app never loads and every
+    # claim fails with "Open failed with error: Print was not found on the
+    # devices storage." -- a misleading message, since the print database
+    # is fine (the driver handles a missing one: both paths -ENOENT ->
+    # fpc_qtee_bio_load_empty_db). It is the TA that is missing.
+    #
+    # Same class of bug as sheng-devauth's hardcoded firmware directory.
+    # The other two defaults are already correct here:
+    # /sys/bus/platform/devices/fingerprint_fpc exists, and the data dir
+    # /var/lib/fpc1553 is created by the drop-in's StateDirectory=.
+    systemd.services.fprintd.environment.FPC1553_TA_PATH =
+      "/run/current-system/firmware/fpcsheng.elf";
+
     systemd.services = {
       "iio-sensor-proxy".wantedBy = [ "multi-user.target" ];
       "sheng-devauth".wantedBy = [ "sysinit.target" ];
