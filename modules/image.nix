@@ -1,28 +1,14 @@
-# Produces config.system.build.shengImage: a single raw ext4 filesystem
-# image plus an Android sparse-format copy, PARTLABEL-tagged, meant to be
-# `fastboot flash`ed straight onto an existing Android GPT partition --
-# exactly what the reference project's build-proper-rootfs.sh does
-# (`truncate -s 10G rootfs.img && mkfs.ext4 rootfs.img`), just assembled
-# from a NixOS closure instead of debootstrap.
+# Builds config.system.build.shengImage: a raw ext4 filesystem plus an
+# Android sparse copy, to `fastboot flash userdata`.
 #
-# Deliberately NOT built on top of
-# <nixpkgs>/nixos/modules/installer/sd-card/sd-image-aarch64.nix: that
-# module partitions a whole SD card with a GPT + a FAT firmware/ESP
-# partition, which this device doesn't have room for or need -- there's
-# no SD card, just one existing partition on the device's own storage.
-# Instead this calls nixos/lib/make-ext4-fs.nix directly, the same
-# low-level helper sd-image.nix itself uses, for a single partition.
+# Not built on sd-image-aarch64.nix: that partitions a whole card with a
+# GPT and a FAT ESP. This device has one existing partition. Calls
+# make-ext4-fs.nix directly, the same helper sd-image uses.
 #
-# BOOTSTRAP extlinux.conf: this writes a single fixed entry pointing at
-# this build's own kernel/dtb/toplevel, because
-# generic-extlinux-compatible's real installer enumerates
-# /nix/var/nix/profiles/system-*-link and a freshly-built image has no
-# such history yet.
-#
-# It is only ever the first boot's entry. sheng-nix-bootstrap.nix creates
-# the system profile and then runs the real installer, which overwrites
-# this file with a proper generation list -- so from the second boot
-# onwards U-Boot's menu shows every generation.
+# The extlinux.conf written here has a single entry, because the real
+# installer enumerates /nix/var/nix/profiles/system-*-link and a fresh
+# image has no history. nix-bootstrap.nix creates the profile on first
+# boot and re-runs the installer, which replaces it with a real list.
 { self, config, lib, pkgs, modulesPath, ... }:
 
 let
@@ -46,35 +32,20 @@ let
       cp "$kernelImage" ./files/boot/Image
       cp "$dtb" ./files/boot/sm8550-xiaomi-sheng.dtb
 
-      # Kept as a belt-and-braces fallback for U-Boot's own fallback path.
-      # sheng.env's `bootlinux` boots /boot/Image with a hardcoded bootargs
-      # carrying no init=, so the kernel's built-in search (/sbin/init,
-      # /etc/init, /bin/init, /bin/sh) has to find this symlink. The normal
-      # path is extlinux.conf below, which passes an explicit init=.
+      # sheng.env's rescue path boots /boot/Image with no init=, so the
+      # kernel's built-in search must find this. nix-bootstrap.nix keeps
+      # it current afterwards.
       ln -sf ${config.system.build.toplevel}/init ./files/sbin/init
 
-      # Bootstrap boot entry, written by the SAME installer that runs at
-      # activation time (../nixos/sheng-extlinux.nix), so the image and a
-      # rebuilt system cannot drift in format.
-      #
-      # In this sandbox /nix/var/nix/profiles/system-*-link does not
-      # exist, so its generation loop runs zero times: exactly one LABEL
-      # and an empty sheng-bootmenu.env, which is the correct first-boot
-      # state. sheng-nix-bootstrap.nix re-runs it after creating the
-      # system profile, and from then on the list is real.
+      # Same installer that runs at activation, so image and rebuilt
+      # system cannot drift in format.
       ${config.sheng.boot.installer}/bin/sheng-install-boot \
         -d ./files/boot ${config.system.build.toplevel}
 
-      # The flake itself, so the device can rebuild without a host.
-      #
-      # A mutable copy, not a store symlink: this is meant to be edited on
-      # the tablet. flake.lock comes with it -- it is what pins nixpkgs, and
-      # without it an on-device rebuild would float to whatever
-      # nixos-unstable happens to be.
-      #
-      # nixpkgs' own source is already in the image (via nixpkgs.flake.source,
-      # which also sets up /etc/nix/registry.json and NIX_PATH), so
-      # `nixos-rebuild --flake /etc/nixos#sheng` resolves entirely offline.
+      # The flake, so the device can rebuild without a host. A mutable
+      # copy, not a store symlink: it is meant to be edited here.
+      # flake.lock comes too, or an on-device rebuild floats to whatever
+      # nixos-unstable is that day and rebuilds the world.
       mkdir -p ./files/etc/nixos
       cp -r --no-preserve=mode,ownership ${self}/. ./files/etc/nixos/
     '';

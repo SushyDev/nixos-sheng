@@ -1,12 +1,17 @@
 services:
   builder:
+    # Uses an existing sheng-builder:latest if present, otherwise builds
+    # from Dockerfile. `docker compose up --build` forces a rebuild.
+    image: sheng-builder:latest
     build: .
-    container_name: sheng-nix-builder
+    container_name: sheng-builder
     ports:
       - "127.0.0.1:2222:22"
     volumes:
-      # Named volume, so the store survives container rebuilds. Without it
-      # every build re-downloads the whole closure, kernel included.
+      # Named volume, so the store survives container rebuilds. Docker
+      # seeds it from the image on first run. Without it, `docker rm`
+      # destroys the store and the next build recompiles the kernel,
+      # which is in no binary cache.
       - nix-store:/nix
       - ./authorized_keys:/root/.ssh/authorized_keys:ro
     restart: unless-stopped

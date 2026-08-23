@@ -1,46 +1,30 @@
-# Bootloader installer: writes /boot/extlinux/extlinux.conf and the
-# per-generation menu file U-Boot imports.
+# Writes /boot/extlinux/extlinux.conf and the menu file U-Boot imports.
 #
-# WHY A FORK RATHER THAN boot.loader.generic-extlinux-compatible
+# Forked from generic-extlinux-compatible, which cannot work here. Its
+# addEntry() starts:
 #
-# The stock module CANNOT WORK on this board. Its builder's addEntry()
-# opens with:
+#     if ! test -e $path/kernel -a -e $path/initrd; then return; fi
 #
-#     if ! test -e $path/kernel -a -e $path/initrd; then
-#         return
-#     fi
+# and nixpkgs only creates $toplevel/initrd when boot.initrd.enable is on.
+# This board has it off -- that is what makes root=PARTLABEL= work without
+# udev -- so the test fails for every generation and the stock installer
+# emits a header with no LABELs, plus an INITRD line pointing at nothing.
 #
-# and nixpkgs only creates $toplevel/initrd when boot.initrd.enable is on
-# (system/boot/kernel.nix). This board sets boot.initrd.enable = false
-# deliberately -- it is what makes root=PARTLABEL= work without udev --
-# so that test fails for EVERY generation and the stock installer emits
-# an extlinux.conf containing a header and not one LABEL. Verified on
-# hardware: /run/current-system has kernel, dtbs and kernel-params, and
-# no initrd. It also emits an unconditional INITRD line pointing at a
-# store path that does not exist.
+# Three deltas from upstream:
 #
-# So: fork it. Three deltas from upstream, each forced by this board.
+#   1. No initrd, required or emitted.
+#   2. PROMPT 0 and no top-level MENU. A top-level MENU sets cfg->prompt
+#      in pxe_utils, which routes to cli_readline_into_buffer("Enter
+#      choice: ") and matches a typed string. This board has three
+#      buttons. U-Boot's own bootmenu does the selecting, via
+#      pxe_label_override. MENU LABEL inside a LABEL is fine.
+#   3. Also writes /boot/sheng-bootmenu.env, the bootmenu_<n> lines
+#      sheng.env imports. U-Boot cannot enumerate generations itself:
+#      hush has no directory listing and no command substitution.
 #
-#   1. No initrd, anywhere -- neither required nor emitted.
-#
-#   2. PROMPT 0, and no top-level MENU keyword. A top-level MENU/PROMPT
-#      sets cfg->prompt (u-boot boot/pxe_utils.c), which sends U-Boot
-#      into menu_interactive_choice() ->
-#      cli_readline_into_buffer("Enter choice: ") and matches a TYPED
-#      string. This board has three buttons and cannot type digits.
-#      Selection is done by U-Boot's own bootmenu instead, which sets
-#      pxe_label_override. ("MENU LABEL" *inside* a LABEL block is fine;
-#      it goes to parse_label_menu() and does not set prompt.)
-#
-#   3. Also emits /boot/sheng-bootmenu.env: `bootmenu_<n>=...` lines that
-#      sheng.env's loadgenmenu `env import -t`s, one per generation.
-#      U-Boot cannot enumerate generations itself -- hush has no
-#      directory listing into variables and no command substitution -- so
-#      the side that knows has to write them down.
-#
-# Explicit FDT, never FDTDIR: FDTDIR makes U-Boot resolve a DTB via
-# $fdtfile, which sheng.env deliberately does not define, and would leave
-# it guessing by compatible string rather than using the overlaid DTB.
+# FDT is explicit, never FDTDIR. FDTDIR needs $fdtfile, which sheng.env
+# does not define, and would leave U-Boot guessing by compatible string
+# instead of using the overlaid DTB.
 {
   config,
   lib,
@@ -77,19 +61,12 @@ let
       mkdir -p "$target/nixos" "$target/extlinux"
       declare -A kept
 
-      # Copy a store path under $target/nixos, flattened to one name, and
-      # report that name in the global $result. Idempotent: identical
-      # store paths reuse the copy.
+      # Copies a store path under $target/nixos, flattened, and reports
+      # the name in $result. Idempotent.
       #
-      # RESULT COMES BACK IN A GLOBAL, NOT ON STDOUT, and callers must
-      # invoke this as `copyIn x; y=$result` rather than `y=$(copyIn x)`.
-      # Command substitution runs in a SUBSHELL, so `kept[...]` set inside
-      # one is lost to the parent -- which left `kept` empty and made the
-      # prune loop below delete every kernel and dtb it had just copied.
-      # /boot/nixos ended up empty, extlinux.conf's LINUX pointed at
-      # nothing, and U-Boot fell through to the rescue path on every boot.
-      # nixpkgs' own extlinux-conf-builder.sh uses this same global-result
-      # idiom for the same reason.
+      # Call as `copyIn x; y=$result`, never `y=$(copyIn x)`. Command
+      # substitution is a subshell, so kept[] would not reach the parent
+      # and the prune loop below would delete everything just copied.
       copyIn() {
         local src dst
         src=$(readlink -f "$1")
@@ -157,29 +134,18 @@ let
         mapfile -t ordered < <(printf '%s\n' "''${gens[@]}" | sort -nr | head -n "$limit")
       fi
 
-      # THIS FILE DEFINES THE WHOLE MENU, index 0 included.
+      # This file defines the whole menu, index 0 included, so entries are
+      # named after the generation that will boot. sheng.env's static
+      # bootmenu_0/bootmenu_1 are only the fallback: `env import`
+      # overwrites exactly what this file defines, so they survive if it
+      # never loads.
       #
-      # sheng.env still carries a static bootmenu_0/bootmenu_1, but only
-      # as a fallback for when this file is missing or unreadable -- it is
-      # not the menu anyone normally sees. Defining index 0 here means the
-      # visible entry is named from the system that will actually boot,
-      # rather than a string frozen into the bootloader that cannot know
-      # which generation it is selecting.
-      #
-      # `env import` overwrites exactly what this file defines, so the
-      # static entries survive if it never loads. There is always a way to
-      # boot and always a way into fastboot.
-      #
-      # cmd/bootmenu.c stops at the first gap, so indices must stay
-      # contiguous from 0.
+      # cmd/bootmenu.c stops at the first gap; keep indices contiguous.
 
       defpath=$(readlink -f "$default")
 
-      # Which generation is $default? At `nixos-rebuild boot` time its
-      # profile link already exists, so this normally resolves. At image
-      # build time there are no profile links at all and it stays empty,
-      # which is correct -- the image ships one entry for the system baked
-      # into it.
+      # Empty at image build time: no profile links exist yet, so the
+      # image ships one entry for the system baked into it.
       defgen=
       for g in ''${ordered[@]+"''${ordered[@]}"}; do
         if [ "$(readlink -f /nix/var/nix/profiles/system-"$g"-link)" = "$defpath" ]; then
@@ -188,10 +154,8 @@ let
         fi
       done
 
-      # Entry 0: the default. No pxe_label_override, so extlinux.conf's
-      # own "DEFAULT nixos-default" decides -- which is this same system.
-      # Going through DEFAULT rather than naming a label keeps entry 0
-      # working even if a generation label is somehow absent.
+      # No pxe_label_override, so extlinux.conf's DEFAULT decides. Going
+      # through DEFAULT keeps entry 0 working even if a label is absent.
       if [ -n "$defgen" ]; then
         # Same timestamp source as the entries below, so all rows read
         # alike rather than this one showing a version string.
@@ -214,13 +178,10 @@ let
         entry "$link" "$g" >> "$tmp"
         # Already offered as entry 0; listing it twice is just noise.
         [ "$g" = "$defgen" ] && continue
-        # stat WITHOUT -L: -L follows the symlink into the store, whose
-        # mtime is normalised to the epoch, so every generation rendered
-        # as 1970-01-01. The profile link's own mtime is when the
-        # generation was actually created.
+        # No -L: it would follow into the store, where mtime is the
+        # epoch. The link's own mtime is when the generation was made.
         ts=$(date '+%Y-%m-%d %H:%M' -d "@$(stat -c %Y "$link")")
-        # Title must not contain '=': cmd/bootmenu.c splits on the FIRST
-        # one. nixos-version labels and timestamps never do.
+        # Title must not contain '=': bootmenu splits on the first one.
         printf 'bootmenu_%d=NixOS generation %s (%s)=setenv pxe_label_override nixos-%s; run bootlinux\n' \
           "$n" "$g" "$ts" "$g" >> "$menutmp"
         n=$((n + 1))
@@ -233,9 +194,8 @@ let
       mv -f "$tmp" "$target/extlinux/extlinux.conf"
       mv -f "$menutmp" "$target/sheng-bootmenu.env"
 
-      # Prune only inside $target/nixos. NEVER touch $target/* directly:
-      # /boot/Image and /boot/sm8550-xiaomi-sheng.dtb live there and are
-      # what sheng.env's rescue path boots.
+      # Prune only inside $target/nixos. /boot/Image and the dtb live one
+      # level up and are what sheng.env's rescue path boots.
       for fn in "$target"/nixos/*; do
         [ -e "$fn" ] || continue
         if [ "''${kept[$fn]:-}" != 1 ]; then
