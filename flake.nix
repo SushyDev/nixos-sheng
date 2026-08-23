@@ -57,9 +57,34 @@
             hostPkgs.openssh
             hostPkgs.netcat
           ];
+
+          # Kept in python: they parse a binary blackbox and drive a unix
+          # socket, which bash would only make worse.
+          mkPython =
+            name:
+            hostPkgs.runCommand name { nativeBuildInputs = [ hostPkgs.python3 ]; } ''
+              install -Dm755 ${./scripts}/${name} $out/bin/${name}
+              patchShebangs $out/bin/${name}
+            '';
         in
         {
           inherit find-sheng;
+
+          exec = mkPython "exec";
+          read-blackbox = mkPython "read-blackbox";
+          capture-linux-dpu = mkPython "capture-linux-dpu";
+
+          soak = mk "soak" [
+            hostPkgs.openssh
+            hostPkgs.coreutils
+            find-sheng
+          ];
+
+          sheng-mdss-status = mk "sheng-mdss-status" [
+            hostPkgs.openssh
+            hostPkgs.coreutils
+            find-sheng
+          ];
 
           builder = mk "builder" [
             hostPkgs.openssh

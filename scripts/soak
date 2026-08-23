@@ -1,36 +1,78 @@
-#!/usr/bin/env bash
-# Reboot the device repeatedly and check U-Boot's display bring-up status
-# after each boot. Catches the intermittent "backlight, no picture" case
-# without anyone watching the panel.
-set -uo pipefail
-set -f
-HERE="$(cd "$(dirname "$0")" && pwd)"
-KEY="${SHENG_KEY:-$HERE/sheng-devkey}"
-O=(-i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no
-   -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR)
-N=${1:-15}
-for n in $(seq 1 "$N"); do
-  IP=""
-  for t in $(seq 1 24); do IP=$("$HERE/find-sheng.sh" 2>/dev/null) && break; sleep 5; done
-  [ -n "$IP" ] || { echo "boot $n: DEVICE DID NOT RETURN"; continue; }
-  RAW=$(ssh "${O[@]}" "root@$IP" \
-    'od -An -v -tx4 --endian=big /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null')
-  BAD=""
-  i=0
-  NAMES=(MDSS_RESET GDSC BCM_MM0 DISPCC DSI0_PHY DSI1_PHY DSI_PHY_START
-         DSI_LINK_CLKS DSI_PANEL DPU PROBE)
-  for w in $RAW; do
-    [ $i -lt 11 ] || break
-    [ "$w" != "00000000" ] && BAD="$BAD ${NAMES[$i]}=0x$w"
-    i=$((i+1))
+# Reboot repeatedly and check U-Boot's display bring-up after each boot.
+# Catches the intermittent "backlight, no picture" case without anyone
+# watching the panel.
+#
+# Usage: soak [count]
+
+readonly COUNT="${1:-15}"
+readonly KEY="${SHENG_KEY:-$PWD/sheng-devkey}"
+readonly IP_CACHE="${SHENG_IP_CACHE:-$PWD/.sheng-ip}"
+
+# One slot per bring-up stage, in the order sheng_mdss writes them.
+readonly STAGES=(
+  MDSS_RESET GDSC BCM_MM0 DISPCC DSI0_PHY DSI1_PHY
+  DSI_PHY_START DSI_LINK_CLKS DSI_PANEL DPU PROBE
+)
+
+ssh_opts=(
+  -i "$KEY"
+  -o IdentitiesOnly=yes
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=5
+  -o LogLevel=ERROR
+)
+
+# The device takes a new DHCP lease every boot, so rediscover each time.
+wait_for_device() {
+  local ip _
+
+  for _ in $(seq 1 24); do
+    ip="$(find-sheng 2>/dev/null)" && { echo "$ip"; return 0; }
+    sleep 5
   done
-  if [ -n "$BAD" ]; then
-    echo "boot $n: *** FAILURE ***$BAD"
+  return 1
+}
+
+# Nonzero in any slot means that stage failed.
+failed_stages() {
+  local -r ip="$1"
+  local raw word bad="" i=0
+
+  raw="$(ssh "${ssh_opts[@]}" "root@$ip" \
+    'od -An -v -tx4 --endian=big /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null')"
+
+  for word in $raw; do
+    [ "$i" -lt "${#STAGES[@]}" ] || break
+    [ "$word" = 00000000 ] || bad="$bad ${STAGES[$i]}=0x$word"
+    i=$((i + 1))
+  done
+
+  echo "$bad"
+}
+
+reboot_device() {
+  local -r ip="$1"
+  ssh "${ssh_opts[@]}" "root@$ip" \
+    'sync; (sleep 1; systemctl reboot) >/dev/null 2>&1 &' >/dev/null 2>&1 || true
+  rm -f "$IP_CACHE"
+  sleep 25
+}
+
+for n in $(seq 1 "$COUNT"); do
+  if ! ip="$(wait_for_device)"; then
+    echo "boot $n: device did not return"
+    continue
+  fi
+
+  bad="$(failed_stages "$ip")"
+  if [ -n "$bad" ]; then
+    echo "boot $n: FAILURE$bad"
   else
     echo "boot $n: all stages ok"
   fi
-  [ "$n" = "$N" ] && break
-  ssh "${O[@]}" "root@$IP" 'sync; (sleep 1; systemctl reboot) >/dev/null 2>&1 &' >/dev/null 2>&1
-  rm -f "$HERE/.sheng-ip"
-  sleep 25
+
+  [ "$n" = "$COUNT" ] && break
+  reboot_device "$ip"
 done

@@ -1,56 +1,81 @@
-#!/usr/bin/env bash
-# Decode U-Boot's per-stage display bring-up status from the running device.
+# Decode U-Boot's per-stage display bring-up status from the device.
 #
-# Run this after a boot that showed backlight but no picture. U-Boot writes
-# one slot per bring-up stage and ft_board_setup() relays them into
-# /chosen, so a failed boot says which stage aborted.
+# Run after a boot that showed backlight but no picture. U-Boot writes one
+# slot per stage and relays them into /chosen.
 #
-#   0            stage succeeded
-#   0x7fffffff   stage never reached
-#   anything     -errno from that stage
-#
-# The last slot is the probe result. Non-zero there means probe returned
-# early, so the framebuffer was never handed to the video uclass -- which
-# is exactly "backlight on, nothing rendered".
-set -euo pipefail
-set -f   # od prints '*' for repeated lines; never let it glob
+#   0           stage succeeded
+#   0x7fffffff  stage never reached
+#   anything    -errno from that stage
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
-KEY="${SHENG_KEY:-$HERE/sheng-devkey}"
-O=(-i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no
-   -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR)
+readonly KEY="${SHENG_KEY:-$PWD/sheng-devkey}"
+readonly NEVER_REACHED=2147483647
 
-IP=$("$HERE/find-sheng.sh") || { echo "device not found" >&2; exit 1; }
+readonly STAGES=(
+  MDSS_RESET GDSC BCM_MM0 DISPCC DSI0_PHY DSI1_PHY
+  DSI_PHY_START DSI_LINK_CLKS DSI_PANEL DPU PROBE
+)
 
-RAW=$(ssh "${O[@]}" "root@$IP" \
-  'od -An -v -tx4 --endian=big /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null || true')
-[ -n "${RAW// /}" ] || { echo "no sheng,mdss-status property (old U-Boot?)" >&2; exit 1; }
+ssh_opts=(
+  -i "$KEY"
+  -o IdentitiesOnly=yes
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=5
+  -o LogLevel=ERROR
+)
 
-echo "device $IP   build $(ssh "${O[@]}" "root@$IP" 'tr " " "\n" < /proc/cmdline | grep sheng.b' || echo '?')"
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+IP="$(find-sheng)" || die "device not found"
+readonly IP
+
+# Args are expanded locally before being sent, which is what callers want.
+# shellcheck disable=SC2029
+dev() {
+  ssh "${ssh_opts[@]}" "root@$IP" "$@"
+}
+
+raw="$(dev 'od -An -v -tx4 --endian=big /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null || true')"
+[ -n "${raw// /}" ] || die "no sheng,mdss-status property"
+
+describe() {
+  local -r word="$1"
+  local value=$((16#$word))
+
+  # Slots hold a signed int.
+  [ "$value" -ge 2147483648 ] && value=$((value - 4294967296))
+
+  case "$value" in
+    0) echo ok ;;
+    "$NEVER_REACHED") echo "not reached" ;;
+    *) echo "FAILED ($value)" ;;
+  esac
+}
+
+echo "device $IP"
 echo
 
-NAMES=(MDSS_RESET GDSC BCM_MM0 DISPCC DSI0_PHY DSI1_PHY DSI_PHY_START
-       DSI_LINK_CLKS DSI_PANEL DPU PROBE)
-
+first_failure=""
 i=0
-fail=""
-for w in $RAW; do
-  [ $i -lt ${#NAMES[@]} ] || break
-  v=$((16#$w))
-  # sign-extend 32-bit
-  [ $v -ge 2147483648 ] && v=$((v - 4294967296))
-  case $v in
-    0)          s="ok" ;;
-    2147483647) s="not reached" ;;
-    *)          s="FAILED ($v)"; [ -z "$fail" ] && fail="${NAMES[$i]}" ;;
+for word in $raw; do
+  [ "$i" -lt "${#STAGES[@]}" ] || break
+
+  status="$(describe "$word")"
+  printf '  %-16s %s\n' "${STAGES[$i]}" "$status"
+
+  case "$status" in
+    FAILED*) [ -n "$first_failure" ] || first_failure="${STAGES[$i]}" ;;
   esac
-  printf "  %-16s %s\n" "${NAMES[$i]}" "$s"
-  i=$((i+1))
+  i=$((i + 1))
 done
 
 echo
-if [ -n "$fail" ]; then
-  echo "first failing stage: $fail"
+if [ -n "$first_failure" ]; then
+  echo "first failing stage: $first_failure"
 else
-  echo "all stages ok -- if the panel was blank, the fault is after probe"
+  echo "all stages ok -- a blank panel means the fault is after probe"
 fi
