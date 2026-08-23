@@ -36,14 +36,23 @@
 }@args:
 
 let
-  # Pinned to the tip of `sheng-7.2.0` as of 2026-08-18. That branch is a
-  # rolling dev target, so re-pin periodically:
-  #   curl -s https://api.github.com/repos/ianchb/sm8550-mainline/commits/sheng-7.2.0 | jq -r .sha
+  # Pinned to the tip of `sheng-7.2.0-kbd` as of 2026-08-24. These are
+  # rolling dev targets, so re-pin periodically:
+  #   curl -s https://api.github.com/repos/ianchb/sm8550-mainline/commits/sheng-7.2.0-kbd | jq -r .sha
+  #
+  # -kbd rather than sheng-7.2.0: it is that branch rebased plus
+  # "HID: nanosic-wn8030: add keyboard backlight LED support", and is the
+  # newest thing upstream has (2026-08-21 against 2026-08-17).
+  #
+  # Do NOT be tempted by sheng-7.2-rc7, which debian-sheng defaults to.
+  # Despite the newer-looking name it is *behind* on every sheng commit --
+  # 344 ahead / 99 behind, diverged -- and lacks the board device tree
+  # entirely.
   rawSrc = fetchFromGitHub {
     owner = "ianchb";
     repo = "sm8550-mainline";
-    rev = "005aa8ccae670a8e731a279e2a802ac75e1e662d";
-    hash = "sha256-IGPK6s0gtPZ587NnLotFvDXx9IFWbo52PHjTNXQTQns=";
+    rev = "e87ae95664efe1c616f13be63f051e86ad9b762e";
+    hash = "sha256-EuJiqO7MpGO+Voi6/1euBXyS8/2FzGLibhvDFmeSzeM=";
   };
 
   # TEMPORARY telemetry (SPEC.md task #5 log): U-Boot's own DSI command
