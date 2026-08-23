@@ -42,6 +42,16 @@ in
       sp.sheng-charger-mode # xiaomi-charger-mode.service
     ];
 
+    # The sheng-fingerprint package ships a patched libfprint plus the
+    # FPC1553 QTEE backend and an fprintd.service.d drop-in that points
+    # fprintd's LD_LIBRARY_PATH at them -- but it expects the distro to
+    # provide fprintd itself. Without this the drop-in has nothing to
+    # attach to: no fprintd, no D-Bus service, and so no fingerprint
+    # option anywhere in the desktop, even though the kernel side is up
+    # ("fpc1553 fingerprint_fpc: fpc1553 platform side ready") and
+    # qteesupplicant/sfsconfig are running.
+    services.fprintd.enable = true;
+
     systemd.services = {
       "iio-sensor-proxy".wantedBy = [ "multi-user.target" ];
       "sheng-devauth".wantedBy = [ "sysinit.target" ];
