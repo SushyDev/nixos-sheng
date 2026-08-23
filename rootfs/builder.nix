@@ -13,14 +13,17 @@
 # Instead this calls nixos/lib/make-ext4-fs.nix directly, the same
 # low-level helper sd-image.nix itself uses, for a single partition.
 #
-# NOTE (v1 simplification): /boot/extlinux/extlinux.conf is written here
-# with a single fixed boot entry pointing at this build's kernel/dtb,
-# rather than going through generic-extlinux-compatible's generation-list
-# installer (which expects a mutable /nix/var/nix/profiles/system-*-link
-# history to enumerate, which a freshly-built image doesn't have). Once
-# the base image boots, switching to on-device `nixos-rebuild boot` for
-# multi-generation extlinux menus is a natural follow-up.
-{ config, lib, pkgs, modulesPath, ... }:
+# BOOTSTRAP extlinux.conf: this writes a single fixed entry pointing at
+# this build's own kernel/dtb/toplevel, because
+# generic-extlinux-compatible's real installer enumerates
+# /nix/var/nix/profiles/system-*-link and a freshly-built image has no
+# such history yet.
+#
+# It is only ever the first boot's entry. sheng-nix-bootstrap.nix creates
+# the system profile and then runs the real installer, which overwrites
+# this file with a proper generation list -- so from the second boot
+# onwards U-Boot's menu shows every generation.
+{ self, config, lib, pkgs, modulesPath, ... }:
 
 let
   cfg = config.sheng.rootfs;
@@ -43,14 +46,37 @@ let
       cp "$kernelImage" ./files/boot/Image
       cp "$dtb" ./files/boot/sm8550-xiaomi-sheng.dtb
 
-      # U-Boot (../u-boot, board/qualcomm/sheng.env) loads Image + the dtb
-      # directly and boots with a static, hardcoded bootargs -- it doesn't
-      # read extlinux.conf, so there's no way to hand it a build-specific
-      # init= (the nix store path changes every rebuild). Instead: no
-      # init= at all (same as sheng.env's bootargs and Debian's own boot),
-      # so the kernel's built-in fallback (/sbin/init, /etc/init,
-      # /bin/init, /bin/sh, tried whenever no init= is set) finds this.
+      # Kept as a belt-and-braces fallback for U-Boot's own fallback path.
+      # sheng.env's `bootlinux` boots /boot/Image with a hardcoded bootargs
+      # carrying no init=, so the kernel's built-in search (/sbin/init,
+      # /etc/init, /bin/init, /bin/sh) has to find this symlink. The normal
+      # path is extlinux.conf below, which passes an explicit init=.
       ln -sf ${config.system.build.toplevel}/init ./files/sbin/init
+
+      # Bootstrap boot entry, written by the SAME installer that runs at
+      # activation time (../nixos/sheng-extlinux.nix), so the image and a
+      # rebuilt system cannot drift in format.
+      #
+      # In this sandbox /nix/var/nix/profiles/system-*-link does not
+      # exist, so its generation loop runs zero times: exactly one LABEL
+      # and an empty sheng-bootmenu.env, which is the correct first-boot
+      # state. sheng-nix-bootstrap.nix re-runs it after creating the
+      # system profile, and from then on the list is real.
+      ${config.sheng.boot.installer}/bin/sheng-install-boot \
+        -d ./files/boot ${config.system.build.toplevel}
+
+      # The flake itself, so the device can rebuild without a host.
+      #
+      # A mutable copy, not a store symlink: this is meant to be edited on
+      # the tablet. flake.lock comes with it -- it is what pins nixpkgs, and
+      # without it an on-device rebuild would float to whatever
+      # nixos-unstable happens to be.
+      #
+      # nixpkgs' own source is already in the image (via nixpkgs.flake.source,
+      # which also sets up /etc/nix/registry.json and NIX_PATH), so
+      # `nixos-rebuild --flake /etc/nixos#sheng` resolves entirely offline.
+      mkdir -p ./files/etc/nixos
+      cp -r --no-preserve=mode,ownership ${self}/. ./files/etc/nixos/
     '';
   };
 in
@@ -103,8 +129,34 @@ in
           truncate -s ${cfg.imageSize} "$img"
           e2fsck -fy "$img" || true
           resize2fs "$img" ${cfg.imageSize}
+
+          # A single e2fsck pass after growing isn't enough: e2fsck's exit
+          # code is 1 ("errors corrected") on the pass that actually fixes
+          # something, not 0, and swallowing that with `|| true` shipped
+          # images where resize2fs's newly-added (BLOCK_UNINIT, lazy-init)
+          # block groups had a stale/incorrect bitmap checksum -- confirmed
+          # on hardware as "EXT4-fs error ... ext4_validate_block_bitmap:
+          # bad block bitmap checksum" from the kernel's own ext4lazyinit
+          # thread a few seconds into boot, before growfs even ran, and as
+          # systemd-growfs-root.service then failing with "Operation not
+          # permitted" (the kernel refuses further resizes once the fs has
+          # the error flag set). Loop until e2fsck itself reports a clean
+          # pass (exit 0); fail the build loudly rather than ship an image
+          # e2fsck never actually finished fixing.
           echo "Final filesystem check..."
-          e2fsck -fy "$img" || true
+          clean=0
+          for i in 1 2 3 4; do
+            if e2fsck -fy "$img"; then
+              echo "e2fsck reported clean on pass $i"
+              clean=1
+              break
+            fi
+            echo "e2fsck pass $i made changes, re-checking..."
+          done
+          if [ "$clean" != 1 ]; then
+            echo "e2fsck did not converge to clean after 4 passes -- refusing to ship this image" >&2
+            exit 1
+          fi
         ''}
 
         echo "Converting to Android sparse format..."
