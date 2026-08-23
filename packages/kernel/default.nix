@@ -620,6 +620,14 @@ let
     # it off short of a kernel rebuild. As a module it loads only when
     # services.shengSerialConsole.enable asks for it.
     CONFIG_USB_G_SERIAL=m
+    # The machine driver, and the only thing that was missing for audio:
+    # sound/soc/qcom/sm8250.c is what binds this DTB's sound node
+    # (qcom,sm8550-sndcard / qcom,sm8450-sndcard). Everything it ties
+    # together was already enabled -- WCD938X codec, WSA883X amps, all
+    # four LPASS macros, SoundWire, QDSP6 -- but without it the card is
+    # never created and /proc/asound/cards reads "no soundcards",
+    # i.e. no speakers and no microphone. Confirmed on hardware.
+    CONFIG_SND_SOC_SM8250=m
     CONFIG_GPIO_SHARED_PROXY=y
     # ENABLED (was "is not set") -- this is why the DRM master stopped
     # binding and Linux went black.

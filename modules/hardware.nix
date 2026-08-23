@@ -89,8 +89,11 @@
   # off by default: binding a gadget to the UDC keeps the Type-C port in
   # peripheral mode, which costs USB host mode (hubs, keyboards, DP alt).
 
-  # hci0 comes up on its own; this only starts bluetoothd on top of it.
-  hardware.bluetooth.enable = false;
+  # hci0 comes up on its own; this only starts bluetoothd on top of it --
+  # and without bluetoothd the adapter is invisible to every desktop, so
+  # Bluetooth looks unsupported when the hardware is in fact working.
+  # mkDefault so a headless build can turn it back off.
+  hardware.bluetooth.enable = lib.mkDefault true;
 
   # Console only; lands at a getty prompt.
   services.xserver.enable = false;
