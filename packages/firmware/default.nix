@@ -3,21 +3,21 @@
 { lib, callPackage }:
 
 let
-  libssc = callPackage ./libssc.nix { };
+  libssc = callPackage ./libssc { };
 in
 {
   inherit libssc;
 
-  sheng-firmware-blobs = callPackage ./sheng-firmware-blobs.nix { };
-  fastrpc = callPackage ./fastrpc.nix { };
-  iio-sensor-proxy = callPackage ./iio-sensor-proxy.nix { inherit libssc; };
-  sheng-sensors = callPackage ./sheng-sensors.nix { };
-  sheng-devauth = callPackage ./sheng-devauth.nix { };
-  alsa-ucm-sheng = callPackage ./alsa-ucm-sheng.nix { };
-  sheng-fingerprint = callPackage ./sheng-fingerprint.nix { };
-  sheng-thp = callPackage ./sheng-thp.nix { inherit libssc; };
-  sheng-pen-status = callPackage ./sheng-pen-status.nix { };
-  sheng-keyboard-helper = callPackage ./sheng-keyboard-helper.nix { inherit libssc; };
-  sheng-mipps-auth = callPackage ./sheng-mipps-auth.nix { };
-  sheng-charger-mode = callPackage ./sheng-charger-mode.nix { };
+  sheng-firmware-blobs = callPackage ./sheng-firmware-blobs { };
+  fastrpc = callPackage ./fastrpc { };
+  iio-sensor-proxy = callPackage ./iio-sensor-proxy { inherit libssc; };
+  sheng-sensors = callPackage ./sheng-sensors { };
+  sheng-devauth = callPackage ./sheng-devauth { };
+  alsa-ucm-sheng = callPackage ./alsa-ucm-sheng { };
+  sheng-fingerprint = callPackage ./sheng-fingerprint { };
+  sheng-thp = callPackage ./sheng-thp { inherit libssc; };
+  sheng-pen-status = callPackage ./sheng-pen-status { };
+  sheng-keyboard-helper = callPackage ./sheng-keyboard-helper { inherit libssc; };
+  sheng-mipps-auth = callPackage ./sheng-mipps-auth { };
+  sheng-charger-mode = callPackage ./sheng-charger-mode { };
 }
