@@ -49,7 +49,7 @@ stdenv.mkDerivation {
 
   meta = {
     description = "Stylus status tray/CLI for the Xiaomi Focus Pen (sheng)";
-    license = lib.licenses.gpl2Plus;
+    license = lib.licenses.gpl2Only; # upstream ships a bare GPLv2 text, no "or later" grant
     platforms = [ "aarch64-linux" ];
     mainProgram = "xiaomi-pen-status";
   };

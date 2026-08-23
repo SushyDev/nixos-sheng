@@ -47,7 +47,7 @@ stdenv.mkDerivation {
 
   meta = {
     description = "Client library for Qualcomm Sensor Core (SSC)";
-    license = lib.licenses.gpl3Plus;
+    license = lib.licenses.gpl3Only; # upstream ships a bare GPLv3 text, no "or later" grant
     platforms = [ "aarch64-linux" ];
   };
 }
