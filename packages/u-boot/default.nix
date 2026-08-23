@@ -3,6 +3,7 @@
   lib,
   buildUBoot,
   zig,
+  xxd,
   android-tools,
   src,
   version ? "sheng",
@@ -28,6 +29,14 @@ in
 
   defconfig = "sm8550_defconfig";
 
+  # The MDSS driver's register sequencing is Zig, built by
+  # drivers/video/qualcomm/Makefile via scripts/Makefile.zig.
+  #
+  # Passed as a make variable rather than put on PATH: nixpkgs' zig ships
+  # a setup hook that replaces buildPhase with `zig build`, which fails
+  # here because there is no build.zig.
+  extraMakeFlags = [ "ZIG=${lib.getExe zig}" ];
+
   filesToInstall = [
     "u-boot.bin"
     "u-boot-nodtb.bin"
@@ -43,17 +52,16 @@ in
   (old: {
     pname = "u-boot-sheng";
 
-    # zig: the MDSS driver's register sequencing is Zig, built by
-    # drivers/video/qualcomm/Makefile via scripts/Makefile.zig.
-    # android-tools: mkbootimg.
     nativeBuildInputs = old.nativeBuildInputs ++ [
-      zig
-      android-tools
+      android-tools # mkbootimg
+      xxd # CONFIG_ENV_USE_DEFAULT_ENV_TEXT_FILE embeds sheng.env via xxd
     ];
 
-    # Zig writes its cache to $HOME.
+    # zig writes caches relative to $HOME, which is not writable here.
     preBuild = ''
       export HOME=$TMPDIR
+      export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+      export ZIG_LOCAL_CACHE_DIR=$TMPDIR/zig-cache
     '';
 
     postInstall = ''
