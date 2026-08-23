@@ -373,8 +373,7 @@ This port stands on other people's work.
 - **[ianchb](https://github.com/ianchb)** — [`sm8550-mainline`](https://github.com/ianchb/sm8550-mainline)
   (branch `sheng-7.2.0`), the kernel this actually runs, and
   [`debian-sheng`](https://github.com/ianchb/debian-sheng), the source of the `sm8550.config`
-  kernel configuration and of the vendor firmware/userspace packaging ported here. This
-  README is modelled on theirs.
+  kernel configuration and of the vendor firmware/userspace packaging ported here.
 - **[alghiffaryfa19](https://gitlab.postmarketos.org/alghiffaryfa19)** — the postmarketOS
   `pmaports` device port, including the ALSA UCM `HiFi.conf` used here.
 - **[sm8550-mainline](https://github.com/sm8550-mainline)** — the upstream device-tree and
