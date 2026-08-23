@@ -56,7 +56,12 @@ fetch() {
   path="$(build "$attr" | tail -1)" || die "build failed"
   [ -n "$path" ] || die "build produced no output path"
 
-  rm -rf "$dest"
+  # Deliberately NOT `rm -rf "$dest"`. Both artifacts land in ./result --
+  # that is where fastboot-flash and flash-rootfs look by default -- and
+  # they come from two different attrs, so wiping the destination made
+  # `fetch u-boot && fetch nixos` silently delete boot.img. Extracting over
+  # the top can leave a stale file behind if a derivation stops emitting
+  # one; that is the lesser problem, and `rm -rf ./result` is right there.
   mkdir -p "$dest"
   docker exec "$NAME" tar -C "$path" -cf - . |
     tar -xf - -C "$dest" --no-same-permissions
