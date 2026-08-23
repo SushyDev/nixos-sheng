@@ -157,22 +157,63 @@ let
         mapfile -t ordered < <(printf '%s\n' "''${gens[@]}" | sort -nr | head -n "$limit")
       fi
 
-      # Generated entries start at 1 and OVERWRITE sheng.env's static
-      # bootmenu_1 (fastboot), which is re-emitted as the LAST entry
-      # afterwards. That keeps "Reboot to fastboot" at the bottom of the
-      # menu instead of stranded above the generation list.
+      # THIS FILE DEFINES THE WHOLE MENU, index 0 included.
       #
-      # Still safe: `env import` only overwrites what this file defines,
-      # so if it is missing or fails to load, sheng.env's static
-      # bootmenu_0 (boot current) and bootmenu_1 (fastboot) both survive.
-      # There is always a way to boot and always a way into fastboot.
+      # sheng.env still carries a static bootmenu_0/bootmenu_1, but only
+      # as a fallback for when this file is missing or unreadable -- it is
+      # not the menu anyone normally sees. Defining index 0 here means the
+      # visible entry is named from the system that will actually boot,
+      # rather than a string frozen into the bootloader that cannot know
+      # which generation it is selecting.
       #
-      # cmd/bootmenu.c stops at the first gap, so these must stay
+      # `env import` overwrites exactly what this file defines, so the
+      # static entries survive if it never loads. There is always a way to
+      # boot and always a way into fastboot.
+      #
+      # cmd/bootmenu.c stops at the first gap, so indices must stay
       # contiguous from 0.
+
+      defpath=$(readlink -f "$default")
+
+      # Which generation is $default? At `nixos-rebuild boot` time its
+      # profile link already exists, so this normally resolves. At image
+      # build time there are no profile links at all and it stays empty,
+      # which is correct -- the image ships one entry for the system baked
+      # into it.
+      defgen=
+      for g in ''${ordered[@]+"''${ordered[@]}"}; do
+        if [ "$(readlink -f /nix/var/nix/profiles/system-"$g"-link)" = "$defpath" ]; then
+          defgen=$g
+          break
+        fi
+      done
+
+      # Entry 0: the default. No pxe_label_override, so extlinux.conf's
+      # own "DEFAULT nixos-default" decides -- which is this same system.
+      # Going through DEFAULT rather than naming a label keeps entry 0
+      # working even if a generation label is somehow absent.
+      if [ -n "$defgen" ]; then
+        # Same timestamp source as the entries below, so all rows read
+        # alike rather than this one showing a version string.
+        defts=$(date '+%Y-%m-%d %H:%M' \
+          -d "@$(stat -c %Y /nix/var/nix/profiles/system-"$defgen"-link)")
+        deftitle="NixOS generation $defgen ($defts) [current]"
+      else
+        # Image build time: no profile links exist yet, so there is no
+        # generation number or creation time to show. The version label
+        # is the only meaningful thing available.
+        deflabel=$(cat "$defpath/nixos-version" 2>/dev/null || echo unknown)
+        deftitle="NixOS - Default ($deflabel)"
+      fi
+      printf 'bootmenu_0=%s=setenv pxe_label_override; run bootlinux\n' \
+        "$deftitle" >> "$menutmp"
+
       n=1
       for g in ''${ordered[@]+"''${ordered[@]}"}; do
         link=/nix/var/nix/profiles/system-$g-link
         entry "$link" "$g" >> "$tmp"
+        # Already offered as entry 0; listing it twice is just noise.
+        [ "$g" = "$defgen" ] && continue
         # stat WITHOUT -L: -L follows the symlink into the store, whose
         # mtime is normalised to the epoch, so every generation rendered
         # as 1970-01-01. The profile link's own mtime is when the
