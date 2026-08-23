@@ -47,7 +47,7 @@ in
       Mark the booted A/B slot successful once the system is up.
 
       Enabled by default, and deliberately not gated behind
-      {option}`services.xiaomiSheng.enable`: this is boot
+      {option}`services.shengFirmware.enable`: this is boot
       infrastructure rather than a vendor daemon, and a system with the
       vendor stack turned off still needs its slot marked or it will
       eventually refuse to boot.

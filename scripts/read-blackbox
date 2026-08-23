@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Read U-Boot's ultra-debug blackbox out of DRAM via the device's /dev/mem.
+
+U-Boot's MDSS driver appends an ASCII log to a fixed DRAM window during
+probe (see the BLACKBOX comment in sheng_mdss_hw.zig). This pulls it back.
+
+Why this exists: every diagnostic in this project used to travel as sheng.*
+entries on the kernel command line, which CONFIG_SYS_CBSIZE caps at 512
+bytes. That meant roughly one question per boot, and register sweeps had to
+be reported as "first mismatching offset + count" with the actual values
+never visible. This raises the budget to ~512KB.
+
+Usage:
+    ./read-blackbox.sh            # print the log
+    ./read-blackbox.sh out.txt    # also save it
+"""
+import subprocess
+import sys
+import os
+
+BB_BASE = 0xA5000000
+BB_HDR = 16
+BB_MAGIC = 0x53484742  # 'SHGB'
+MAX = 512 * 1024
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXEC = os.path.join(HERE, "exec.sh")
+
+
+def dev(cmd):
+    r = subprocess.run(["python3", EXEC, cmd], capture_output=True, text=True,
+                       timeout=300)
+    return r.stdout.strip()
+
+
+def main():
+    hdr = dev(
+        f"printf '%s %s %s' "
+        f"$(devmem {hex(BB_BASE)} 32) "
+        f"$(devmem {hex(BB_BASE + 4)} 32) "
+        f"$(devmem {hex(BB_BASE + 8)} 32)"
+    ).split()
+    if len(hdr) < 3:
+        sys.exit(f"could not read blackbox header (got {hdr!r}) -- is the "
+                 f"device up and exec.sh working?")
+
+    magic, length, overflow = (int(x, 16) for x in hdr)
+    if magic != BB_MAGIC:
+        sys.exit(
+            f"bad magic 0x{magic:08x} (want 0x{BB_MAGIC:08x}).\n"
+            "Either this U-Boot has no blackbox, it never reached "
+            "sheng_bb_finish(), or Linux has already allocated over the "
+            "region. The magic is written LAST precisely so a torn or "
+            "clobbered log is detectable rather than silently half-read."
+        )
+
+    if length == 0 or length > MAX:
+        sys.exit(f"implausible length {length}")
+
+    # dd straight out of /dev/mem: one transfer instead of `length/4`
+    # devmem round-trips over the serial bridge.
+    start = BB_BASE + BB_HDR
+    count = (length + 4095) // 4096 + 1
+    skip = start // 4096   # 0xa5000000 >> 12 == 675840
+    off = start % 4096
+    b64 = dev(f"dd if=/dev/mem bs=4096 skip={skip} count={count} 2>/dev/null "
+              f"| base64 -w0")
+    import base64
+    raw = base64.b64decode("".join(b64.split()))[off:off + length]
+    text = raw.decode("utf-8", errors="replace")
+
+    print(text)
+    print(f"\n[{length} bytes{', OVERFLOWED (log truncated)' if overflow else ''}]")
+
+    if len(sys.argv) > 1:
+        with open(sys.argv[1], "w") as f:
+            f.write(text)
+        print(f"[saved to {sys.argv[1]}]")
+
+
+if __name__ == "__main__":
+    main()

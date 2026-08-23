@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Send a shell command to the device over the tio nixos-socket bridge
+(/tmp/nixos-socket <- tio -m INLCRNL -S unix:/tmp/nixos-socket /dev/cu.usbmodemXXX)
+and print everything up to the next shell prompt.
+
+Usage: ./exec.sh '<command>'
+"""
+import socket
+import sys
+import time
+
+SOCKET_PATH = "/tmp/nixos-socket"
+PROMPT_MARKERS = ("# ", "$ ")
+END_MARKER = "__EXEC_DONE__"
+
+
+def strip_ansi(data: bytes) -> str:
+    text = data.decode("utf-8", errors="replace")
+    out = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "\x1b":
+            j = i + 1
+            if j < len(text) and text[j] == "[":
+                j += 1
+                while j < len(text) and text[j] not in "abcdefghilmnpqrstuvwxyzABCDEFGHILMNPQRSTUVWXYZ~":
+                    j += 1
+                j += 1
+            i = j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("usage: ./exec.sh '<command>'", file=sys.stderr)
+        sys.exit(1)
+    cmd = sys.argv[1]
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(SOCKET_PATH)
+
+    # Drain anything pending (banner/leftover prompt) before sending.
+    s.setblocking(False)
+    try:
+        while True:
+            if not s.recv(65536):
+                break
+    except BlockingIOError:
+        pass
+    s.setblocking(True)
+
+    full_cmd = f"{cmd}; echo {END_MARKER}\n"
+    s.sendall(full_cmd.encode())
+
+    # The marker shows up twice: once in the local tty echo of what we
+    # typed, once in the real output of `echo __EXEC_DONE__`. Wait for
+    # the second occurrence before deciding we're done.
+    buf = b""
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        try:
+            s.settimeout(max(0.2, deadline - time.time()))
+            chunk = s.recv(65536)
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        buf += chunk
+        if buf.count(END_MARKER.encode()) >= 2:
+            break
+
+    s.close()
+
+    text = strip_ansi(buf)
+
+    first = text.find(END_MARKER)
+    second = text.find(END_MARKER, first + 1) if first != -1 else -1
+    if first != -1 and second != -1:
+        # Real output lives between the end of the echoed input line
+        # (first marker) and the start of the real marker line (second).
+        after_first = text.find("\n", first)
+        text = text[after_first + 1:second] if after_first != -1 else ""
+    elif first != -1:
+        text = text[:first]
+
+    lines = text.splitlines()
+    out_lines = []
+    echoed_cmd = full_cmd.strip()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped == echoed_cmd or stripped.endswith(echoed_cmd):
+            continue
+        out_lines.append(line)
+    print("\n".join(out_lines).strip())
+
+
+if __name__ == "__main__":
+    main()

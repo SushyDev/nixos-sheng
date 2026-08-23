@@ -1,55 +1,131 @@
 {
-  description = "NixOS for the Xiaomi Pad 6S Pro 12.4 (\"sheng\", SM8550P)";
+  description = "NixOS and U-Boot for the Xiaomi Pad 6S Pro 12.4 (sheng, SM8550)";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+
+    # Not a flake; buildUBoot just needs the tree. Override to iterate
+    # without pushing:
+    #   nix build .#u-boot --override-input u-boot-src ../u-boot
+    u-boot-src = {
+      url = "github:SushyDev/u-boot/xiaomi-sheng";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      u-boot-src,
+    }:
     let
-      system = "aarch64-linux";
+      # The device. Building these on anything else needs a remote builder;
+      # see docker/README.md.
+      target = "aarch64-linux";
+
+      # Where the flashing and debug scripts run.
+      hostSystems = [
+        "aarch64-darwin"
+        "x86_64-darwin"
+        "aarch64-linux"
+        "x86_64-linux"
+      ];
+
+      forHosts = f: nixpkgs.lib.genAttrs hostSystems (s: f nixpkgs.legacyPackages.${s});
+
       pkgs = import nixpkgs {
-        inherit system;
+        system = target;
         overlays = [ (import ./overlay.nix) ];
-        config.allowUnfree = true; # QTEE/firmware blobs are proprietary
+        config.allowUnfree = true;
       };
+
+      sheng = self.lib.shengSystem { inherit nixpkgs; };
+
+      # writeShellApplication runs shellcheck at build time and pins the
+      # tools on PATH.
+      mkScripts =
+        hostPkgs:
+        let
+          mk =
+            name: runtimeInputs:
+            hostPkgs.writeShellApplication {
+              inherit name runtimeInputs;
+              text = builtins.readFile (./scripts + "/${name}");
+            };
+          find-sheng = mk "find-sheng" [
+            hostPkgs.openssh
+            hostPkgs.netcat
+          ];
+        in
+        {
+          inherit find-sheng;
+
+          builder = mk "builder" [
+            hostPkgs.openssh
+            hostPkgs.coreutils
+          ];
+
+          flash-uboot = mk "flash-uboot" [
+            hostPkgs.openssh
+            hostPkgs.coreutils
+            find-sheng
+          ];
+
+          flash-rootfs = mk "flash-rootfs" [
+            hostPkgs.android-tools
+            hostPkgs.coreutils
+          ];
+
+          fastboot-flash = mk "fastboot-flash" [
+            hostPkgs.android-tools
+            hostPkgs.coreutils
+            hostPkgs.gnugrep
+          ];
+        };
     in
     {
-      nixosConfigurations.sheng = nixpkgs.lib.nixosSystem {
-        inherit system pkgs;
-        specialArgs = { inherit self; };
-        modules = [
-          ./nixos/configuration.nix
-        ];
+      lib = import ./lib { inherit self; };
+
+      nixosModules = {
+        default = ./modules;
+        firmware = ./modules/firmware.nix;
       };
 
-      packages.${system} = {
-        shengImage = self.nixosConfigurations.sheng.config.system.build.shengImage;
-        default = self.packages.${system}.shengImage;
-        shengKernel = pkgs.shengKernel;
-        shengMdssTestModule = pkgs.callPackage ./kernel/mdss-test-module { };
+      overlays.default = import ./overlay.nix;
 
-      } // pkgs.shengPackages;
+      nixosConfigurations.sheng = sheng;
 
-      apps.${system}.build-image = {
-        type = "app";
-        program = toString (pkgs.writeShellScript "build-sheng-image" ''
-          set -euo pipefail
-          echo "Building sheng-rootfs.img (this builds the full NixOS closure + kernel, may take a while)..."
-          out=$(${pkgs.nix}/bin/nix build --no-link --print-out-paths .#shengImage)
-          raw=$(find "$out" -name '*.img' ! -name '*.sparse.img' | head -n1)
-          sparse=$(find "$out" -name '*.sparse.img' | head -n1)
-          echo ""
-          echo "Raw image:    $raw"
-          echo "Sparse image: $sparse"
-          echo ""
-          echo "Flash the sparse image with fastboot (recommended -- fastboot expects sparse):"
-          echo "  fastboot flash <partlabel> \"$sparse\""
-          echo "Or the raw image with any other flashing tool (dd, etc):"
-          echo "  fastboot flash <partlabel> \"$raw\""
-          echo ""
-          echo "<partlabel> defaults to \"userdata\" (see config.sheng.rootfs.partlabel)."
-        '');
-      };
+      packages = forHosts (
+        hostPkgs:
+        mkScripts hostPkgs
+        // nixpkgs.lib.optionalAttrs (hostPkgs.stdenv.hostPlatform.system == target) (
+          {
+            default = sheng.config.system.build.shengImage;
+
+            # Sparse userdata.img to flash onto a fresh device.
+            nixos = sheng.config.system.build.shengImage;
+
+            u-boot = pkgs.callPackage ./packages/u-boot {
+              src = u-boot-src;
+              version = u-boot-src.shortRev or "dirty";
+            };
+
+            kernel = pkgs.shengKernel;
+            mdss-test-module = pkgs.callPackage ./packages/kernel/mdss-test-module { };
+          }
+          // pkgs.shengPackages
+        )
+      );
+
+      apps = forHosts (
+        hostPkgs:
+        builtins.mapAttrs (_: script: {
+          type = "app";
+          program = nixpkgs.lib.getExe script;
+        }) (mkScripts hostPkgs)
+      );
+
+      formatter = forHosts (hostPkgs: hostPkgs.nixfmt-rfc-style);
     };
 }

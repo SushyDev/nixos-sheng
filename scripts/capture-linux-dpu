@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Capture the same DPU/DSI blocks from a RENDERING Linux that U-Boot's
+blackbox dumps, and diff them mechanically.
+
+Why: every comparison in this project used to be "first mismatching offset
++ count" or done by eye. This reads the identical register ranges off a
+working system and diffs them against the blackbox log, so a difference
+cannot be missed or misread.
+
+The DSC ranges are the point. dpu_9_0_sm8550.h lists dsc_0.base = 0x80000,
+but the actual encoder lives in a sub-block at +0x100 (dpu_hw_catalog.c:
+dsc_sblk_0 = { .enc = +0x100 len 0x9c, .ctl = +0xF00 }). Earlier dumps
+covered 0x80000-0x800fc -- the empty gap before it -- which read as all
+zeros on both sides and looked like a match. The DSC encoder config has
+never actually been compared.
+
+Usage:
+    ./capture-linux-dpu.sh                 # capture + print
+    ./capture-linux-dpu.sh bb84.txt        # capture + diff against a blackbox log
+"""
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXEC = os.path.join(HERE, "exec.sh")
+
+DPU = 0x0AE01000
+DSI0 = 0x0AE94004
+
+# name -> (absolute_base, start_offset, count)
+BLOCKS = [
+    ("DSC0_ENC",       DPU + 0x80000, 0x100, 40),
+    ("DSC1_ENC",       DPU + 0x80000, 0x200, 40),
+    ("DSC0_CTL",       DPU + 0x80000, 0xF00, 8),
+    ("DSC2_ENC",       DPU + 0x81000, 0x100, 40),
+    ("DSC3_ENC",       DPU + 0x81000, 0x200, 40),
+    ("DSC2_CTL",       DPU + 0x81000, 0xF00, 8),
+    ("SSPP_DMA0_FULL", DPU + 0x24000, 0x000, 209),
+    ("CTL0_FULL",      DPU + 0x15000, 0x000, 164),
+    ("LM0_FULL",       DPU + 0x44000, 0x000, 128),
+    ("LM1_FULL",       DPU + 0x45000, 0x000, 128),
+    ("INTF1_FULL",     DPU + 0x35000, 0x000, 192),
+    ("INTF2_FULL",     DPU + 0x36000, 0x000, 192),
+    ("PP0_FULL",       DPU + 0x69000, 0x000, 64),
+    ("PP1_FULL",       DPU + 0x6A000, 0x000, 64),
+    ("MERGE3D",        DPU + 0x4E000, 0x000, 16),
+    ("DSI0",           DSI0,          0x000, 192),
+]
+
+CHUNK = 48  # registers per exec.sh round trip; keeps each command short
+
+
+def dev(cmd):
+    r = subprocess.run(["python3", EXEC, cmd], capture_output=True,
+                       text=True, timeout=600)
+    return r.stdout.strip()
+
+
+def read_block(base, start, count):
+    vals = []
+    for lo in range(0, count, CHUNK):
+        n = min(CHUNK, count - lo)
+        first = base + start + lo * 4
+        last = first + (n - 1) * 4
+        out = dev(
+            f'O=""; for a in $(seq {first} 4 {last}); do '
+            f'O="$O$(devmem $a 32|sed s/0x//) "; done; echo "R:$O"'
+        )
+        m = re.search(r"R:(.*)", out, re.S)
+        if not m:
+            raise SystemExit(f"read failed at 0x{first:x} (got {out!r})")
+        got = [v.lower() for v in m.group(1).split() if re.fullmatch(r"[0-9a-fA-F]{8}", v)]
+        if len(got) != n:
+            raise SystemExit(f"short read at 0x{first:x}: {len(got)} of {n}")
+        vals.extend(got)
+    return vals
+
+
+def parse_blackbox(path):
+    out, cur = {}, None
+    for line in open(path):
+        m = re.match(r"--- (\S+) base=", line)
+        if m:
+            cur = m.group(1)
+            out[cur] = {}
+            continue
+        m2 = re.match(r"\s+0x([0-9a-f]{3}): (.*)", line)
+        if m2 and cur:
+            off = int(m2.group(1), 16)
+            for i, v in enumerate(m2.group(2).split()):
+                out[cur][off + i * 4] = v.lower()
+    return out
+
+
+def main():
+    ub = parse_blackbox(sys.argv[1]) if len(sys.argv) > 1 else None
+    total_diff = 0
+
+    for name, base, start, count in BLOCKS:
+        vals = read_block(base, start, count)
+        print(f"--- {name} base=0x{base:08x} start=0x{start:03x} count={count}")
+        for i in range(0, len(vals), 8):
+            print(f"  0x{start + i * 4:03x}: " + " ".join(vals[i:i + 8]))
+
+        if ub and name in ub:
+            diffs = []
+            for i, lv in enumerate(vals):
+                off = start + i * 4
+                ov = ub[name].get(off)
+                if ov is not None and ov != lv:
+                    diffs.append((off, ov, lv))
+            total_diff += len(diffs)
+            print(f"  >>> {len(diffs)} differ vs U-Boot")
+            for off, ov, lv in diffs[:24]:
+                print(f"      0x{off:03x}  uboot={ov}  linux={lv}")
+            if len(diffs) > 24:
+                print(f"      ... +{len(diffs) - 24} more")
+        print()
+
+    if ub:
+        print(f"TOTAL DIFFERENCES: {total_diff}")
+
+
+if __name__ == "__main__":
+    main()

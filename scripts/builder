@@ -1,0 +1,75 @@
+# Bring up the aarch64-linux Docker builder and register it with Nix.
+#
+# Determinate's native Linux builder has no network, so fixed-output
+# derivations cannot fetch in it. This container can.
+#
+# Usage: builder [up|down|status|nix-conf]
+
+readonly DIR="${SHENG_DOCKER_DIR:-./docker}"
+readonly KEY="${SHENG_BUILDER_KEY:-$HOME/.ssh/sheng-builder}"
+readonly HOST=sheng-builder
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+ensure_key() {
+  [ -f "$KEY" ] && return 0
+  echo "generating $KEY"
+  ssh-keygen -t ed25519 -N '' -C sheng-builder -f "$KEY" >/dev/null
+}
+
+# compose mounts this read-only into the container.
+ensure_authorized_keys() {
+  cp "$KEY.pub" "$DIR/authorized_keys"
+}
+
+# Nix connects as this host; keep the SSH config next to the key.
+ensure_ssh_config() {
+  local -r block="$HOME/.ssh/config.d/$HOST"
+
+  mkdir -p "$HOME/.ssh/config.d"
+  printf '%s\n' \
+    "Host $HOST" \
+    "  HostName 127.0.0.1" \
+    "  Port 2222" \
+    "  User root" \
+    "  IdentityFile $KEY" \
+    "  IdentitiesOnly yes" \
+    "  StrictHostKeyChecking no" \
+    "  UserKnownHostsFile /dev/null" \
+    >"$block"
+
+  grep -q "Include config.d/\*" "$HOME/.ssh/config" 2>/dev/null && return 0
+  printf 'Include config.d/*\n%s\n' "$(cat "$HOME/.ssh/config" 2>/dev/null || true)" \
+    >"$HOME/.ssh/config.tmp"
+  mv "$HOME/.ssh/config.tmp" "$HOME/.ssh/config"
+}
+
+nix_conf_line() {
+  echo "builders = ssh-ng://$HOST aarch64-linux $KEY 8 1 big-parallel,benchmark - -"
+}
+
+up() {
+  ensure_key
+  ensure_authorized_keys
+  ensure_ssh_config
+  docker compose -f "$DIR/compose.yaml" up -d --build
+  echo
+  echo "add to /etc/nix/nix.conf, then restart the nix daemon:"
+  echo "  $(nix_conf_line)"
+}
+
+status() {
+  docker compose -f "$DIR/compose.yaml" ps
+  ssh "$HOST" 'nix --version && df -h /nix | tail -1' 2>&1 || die "cannot reach $HOST"
+}
+
+case "${1:-up}" in
+  up) up ;;
+  down) docker compose -f "$DIR/compose.yaml" down ;;
+  status) status ;;
+  nix-conf) nix_conf_line ;;
+  *) die "usage: builder [up|down|status|nix-conf]" ;;
+esac

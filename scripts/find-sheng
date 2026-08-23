@@ -1,0 +1,58 @@
+# Print the sheng's IP. Tries the cached address, then sweeps the /24.
+# The device takes a new DHCP lease every boot, so the cache goes stale.
+
+readonly IP_CACHE="${SHENG_IP_CACHE:-$PWD/.sheng-ip}"
+readonly KEY="${SHENG_KEY:-$PWD/sheng-devkey}"
+
+ssh_opts=(
+  -i "$KEY"
+  -o IdentitiesOnly=yes
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=3
+  -o LogLevel=ERROR
+)
+
+# A sheng has this partition; a random SSH host on the LAN does not.
+is_sheng() {
+  local -r host="$1"
+  ssh "${ssh_opts[@]}" "root@$host" 'test -e /dev/disk/by-partlabel/boot_a' 2>/dev/null
+}
+
+try_cache() {
+  [ -f "$IP_CACHE" ] || return 1
+  local -r cached="$(cat "$IP_CACHE")"
+  [ -n "$cached" ] || return 1
+  is_sheng "$cached" || return 1
+  echo "$cached"
+}
+
+# Port-scan the whole /24 in parallel, then verify each hit. Scanning is
+# fast; the SSH check is not, so do it only for hosts with 22 open.
+sweep() {
+  local -r prefix="${1%.*}"
+  local -r hits="$(mktemp)"
+  local host i
+  local -a candidates
+
+  for i in $(seq 2 254); do
+    ( nc -z -G 1 -w 1 "$prefix.$i" 22 >/dev/null 2>&1 && echo "$prefix.$i" >>"$hits" ) &
+  done
+  wait
+
+  mapfile -t candidates <"$hits"
+  rm -f "$hits"
+
+  for host in "${candidates[@]}"; do
+    is_sheng "$host" || continue
+    echo "$host" >"$IP_CACHE"
+    echo "$host"
+    return 0
+  done
+
+  return 1
+}
+
+try_cache && exit 0
+sweep "$(ipconfig getifaddr en0 2>/dev/null || echo 192.168.2.1)"

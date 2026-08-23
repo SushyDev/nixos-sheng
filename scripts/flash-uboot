@@ -1,0 +1,128 @@
+# Flash U-Boot to both boot slots over SSH, then reboot.
+#
+# boot_a and boot_b are ordinary GPT partitions and the rootfs is mounted
+# rw, so they can be written in place. That avoids holding buttons and
+# re-logging into a console for every test build.
+#
+# Both slots are written. Which one is live is ambiguous -- fastboot lands
+# in boot_a, dd went to boot_b -- and writing only the inactive slot
+# succeeds, verifies, and changes nothing.
+#
+# Usage: flash-uboot [boot.img]
+
+readonly IMG="${1:-./result/boot.img}"
+readonly KEY="${SHENG_KEY:-$PWD/sheng-devkey}"
+readonly IP_CACHE="${SHENG_IP_CACHE:-$PWD/.sheng-ip}"
+
+ssh_opts=(
+  -i "$KEY"
+  -o IdentitiesOnly=yes
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=5
+  -o LogLevel=ERROR
+)
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+[ -f "$IMG" ] || die "no image at $IMG"
+
+IMG_SHA="$(sha256sum "$IMG" | cut -d' ' -f1)"
+IMG_SIZE="$(stat -f %z "$IMG" 2>/dev/null || stat -c %s "$IMG")"
+readonly IMG_SHA IMG_SIZE
+
+IP="$(find-sheng)" || die "device not found"
+readonly IP
+
+# Args are expanded locally before being sent, which is what callers want.
+# shellcheck disable=SC2029
+dev() {
+  ssh "${ssh_opts[@]}" "root@$IP" "$@"
+}
+
+echo "device at $IP"
+scp "${ssh_opts[@]}" "$IMG" "root@$IP:/root/boot-new.img" >/dev/null
+
+# Guards run per slot on the device. xbl/abl are the primary boot chain;
+# a write there is unrecoverable, so no target may ever resolve to them.
+# The remote checks against the local hash and size, so both are
+# substituted before the command is sent.
+dev "IMG_SHA='$IMG_SHA' IMG_SIZE='$IMG_SIZE' bash -s" <<'REMOTE'
+set -euo pipefail
+
+readonly MIN_SIZE=33554432
+readonly MAX_SIZE=536870912
+readonly FORBIDDEN="xbl_a xbl_b xbl_config_a xbl_config_b abl_a abl_b"
+
+fail() {
+  echo "GUARD FAIL: $*" >&2
+  exit 1
+}
+
+resolve_slot() {
+  local -r slot="$1"
+  local -r link="/dev/disk/by-partlabel/$slot"
+
+  [ -L "$link" ] || fail "$link missing"
+
+  local target label
+  target="$(readlink -f "$link")"
+  [ -b "$target" ] || fail "$target not a block device"
+
+  # Catches a stale or dangling symlink.
+  label="$(lsblk -no PARTLABEL "$target" | tr -d '[:space:]')"
+  [ "$label" = "$slot" ] || fail "label '$label' != $slot"
+
+  echo "$target"
+}
+
+reject_boot_chain() {
+  local -r target="$1"
+  local p
+
+  for p in $FORBIDDEN; do
+    [ -e "/dev/disk/by-partlabel/$p" ] || continue
+    [ "$(readlink -f "/dev/disk/by-partlabel/$p")" != "$target" ] || fail "target is $p"
+  done
+}
+
+check_size() {
+  local -r target="$1"
+  local size
+  size="$(blockdev --getsize64 "$target")"
+
+  [ "$size" -ge "$MIN_SIZE" ] && [ "$size" -le "$MAX_SIZE" ] || fail "implausible size $size"
+  [ "$size" -gt "$IMG_SIZE" ] || fail "image bigger than partition"
+}
+
+write_slot() {
+  local -r slot="$1"
+  local target
+  target="$(resolve_slot "$slot")"
+
+  reject_boot_chain "$target"
+  check_size "$target"
+
+  dd if=/root/boot-new.img of="$target" bs=1M conv=fsync status=none
+  sync
+
+  local back
+  back="$(dd if="$target" bs=1 count="$IMG_SIZE" status=none | sha256sum | cut -d' ' -f1)"
+  [ "$back" = "$IMG_SHA" ] || fail "verify $slot: $back != $IMG_SHA"
+  echo "  $slot -> $target verified"
+}
+
+write_slot boot_a
+write_slot boot_b
+rm -f /root/boot-new.img
+REMOTE
+
+# Does not wait for the device to return: it takes a new DHCP lease every
+# boot, so polling the old address just stalls until timeout.
+echo "rebooting -- run find-sheng in ~40s"
+dev 'sync; (sleep 1; systemctl reboot) >/dev/null 2>&1 &' >/dev/null 2>&1 || true
+rm -f "$IP_CACHE"

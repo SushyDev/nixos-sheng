@@ -9,11 +9,11 @@
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.services.xiaomiSheng;
+  cfg = config.services.shengFirmware;
   sp = pkgs.shengPackages;
 in
 {
-  options.services.xiaomiSheng.enable =
+  options.services.shengFirmware.enable =
     lib.mkEnableOption "Xiaomi sheng vendor userspace stack (sensors, keyboard/pen/fingerprint/charger auth)";
 
   config = lib.mkIf cfg.enable {

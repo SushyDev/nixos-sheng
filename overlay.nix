@@ -1,7 +1,6 @@
-# Injects the sheng-specific kernel and vendor userspace packages into pkgs,
-# so NixOS modules reference them the normal overlay way (pkgs.shengKernel,
-# pkgs.shengPackages.*) rather than importing paths directly.
+# Sheng kernel and vendor userspace, injected into pkgs so modules can use
+# pkgs.shengKernel / pkgs.shengPackages.* instead of importing paths.
 final: prev: {
-  shengKernel = final.callPackage ./kernel { };
-  shengPackages = final.callPackage ./firmware { };
+  shengKernel = final.callPackage ./packages/kernel { };
+  shengPackages = final.callPackage ./packages/firmware { };
 }

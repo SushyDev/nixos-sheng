@@ -1,0 +1,49 @@
+# Flash the rootfs image to userdata. WIPES THE DEVICE.
+#
+# "userdata" is a literal and is never built from an argument, so no input
+# can redirect a write to xbl/abl.
+#
+# Usage: flash-rootfs [sheng-rootfs.sparse.img]
+
+readonly IMG="${1:-./result/sheng-rootfs.sparse.img}"
+readonly SPARSE_MAGIC=3aff26ed # offset 0
+readonly EXT4_MAGIC=53ef       # offset 0x438
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+# Refuse an unknown blob rather than writing it to a partition.
+image_kind() {
+  local -r sparse="$(od -An -tx1 -N4 -j0 "$IMG" | tr -d ' \n')"
+  local -r ext4="$(od -An -tx1 -N2 -j1080 "$IMG" | tr -d ' \n')"
+
+  [ "$sparse" = "$SPARSE_MAGIC" ] && { echo "Android sparse"; return 0; }
+  [ "$ext4" = "$EXT4_MAGIC" ] && { echo "raw ext4"; return 0; }
+  return 1
+}
+
+require_one_device() {
+  local -r n="$(fastboot devices | grep -c fastboot || true)"
+  [ "$n" != 0 ] || die $'no device in fastboot.\n  hold POWER ~15s, then hold VOLUME DOWN and plug USB in'
+  [ "$n" = 1 ] || die "$n devices in fastboot -- refusing to guess"
+}
+
+confirm() {
+  local reply
+  echo "*** THIS ERASES EVERYTHING ON THE DEVICE ***"
+  read -r -p "type 'wipe' to continue: " reply
+  [ "$reply" = wipe ] || die aborted
+}
+
+[ -f "$IMG" ] || die "no image at $IMG"
+kind="$(image_kind)" || die "$IMG is neither an Android sparse nor a raw ext4 image"
+require_one_device
+
+echo "image:  $(basename "$IMG") ($kind)"
+echo "target: userdata"
+confirm
+
+fastboot flash userdata "$IMG"
+echo "done. reboot with: fastboot reboot"

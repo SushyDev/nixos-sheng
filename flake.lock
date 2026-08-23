@@ -18,7 +18,25 @@
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "u-boot-src": "u-boot-src"
+      }
+    },
+    "u-boot-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787446235,
+        "narHash": "sha256-GPPQTTfnyKbtRQjSb34SpvBdaqV82XXM8IhLxMJodws=",
+        "owner": "SushyDev",
+        "repo": "u-boot",
+        "rev": "2fa422313f6ab5bd9706d5c339f22ec31434a55e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "SushyDev",
+        "ref": "xiaomi-sheng",
+        "repo": "u-boot",
+        "type": "github"
       }
     }
   },

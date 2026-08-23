@@ -3,3 +3,7 @@ result-*
 .DS_Store
 .devenv
 .devenv-build
+docker/authorized_keys
+result
+result-*
+.sheng-ip

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Reboot the device repeatedly and check U-Boot's display bring-up status
+# after each boot. Catches the intermittent "backlight, no picture" case
+# without anyone watching the panel.
+set -uo pipefail
+set -f
+HERE="$(cd "$(dirname "$0")" && pwd)"
+KEY="${SHENG_KEY:-$HERE/sheng-devkey}"
+O=(-i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no
+   -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR)
+N=${1:-15}
+for n in $(seq 1 "$N"); do
+  IP=""
+  for t in $(seq 1 24); do IP=$("$HERE/find-sheng.sh" 2>/dev/null) && break; sleep 5; done
+  [ -n "$IP" ] || { echo "boot $n: DEVICE DID NOT RETURN"; continue; }
+  RAW=$(ssh "${O[@]}" "root@$IP" \
+    'od -An -v -tx4 --endian=big /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null')
+  BAD=""
+  i=0
+  NAMES=(MDSS_RESET GDSC BCM_MM0 DISPCC DSI0_PHY DSI1_PHY DSI_PHY_START
+         DSI_LINK_CLKS DSI_PANEL DPU PROBE)
+  for w in $RAW; do
+    [ $i -lt 11 ] || break
+    [ "$w" != "00000000" ] && BAD="$BAD ${NAMES[$i]}=0x$w"
+    i=$((i+1))
+  done
+  if [ -n "$BAD" ]; then
+    echo "boot $n: *** FAILURE ***$BAD"
+  else
+    echo "boot $n: all stages ok"
+  fi
+  [ "$n" = "$N" ] && break
+  ssh "${O[@]}" "root@$IP" 'sync; (sleep 1; systemctl reboot) >/dev/null 2>&1 &' >/dev/null 2>&1
+  rm -f "$HERE/.sheng-ip"
+  sleep 25
+done
