@@ -91,7 +91,17 @@ in
       "${sp.sheng-pen-status}/etc/xdg/autostart/xiaomi-pen-status.desktop";
 
     environment.pathsToLink = [ "/share/alsa" ];
+    # A UNION of the sheng profile and upstream alsa-ucm-conf, not the
+    # sheng package alone. ALSA_CONFIG_UCM2 replaces the search path
+    # rather than extending it, so pointing it at a package holding only
+    # Xiaomi/sheng/*.conf hides ucm2/lib, ucm2/ucm.conf and everything
+    # else UCM needs to initialise. UCM then fails silently: the card is
+    # present with all its PCMs (pcm0p pcm1p pcm2c pcm3p) and wireplumber
+    # still reports zero sinks and zero sources -- no speakers, no mic.
     environment.sessionVariables.ALSA_CONFIG_UCM2 =
-      "${sp.alsa-ucm-sheng}/share/alsa/ucm2";
+      "${pkgs.symlinkJoin {
+        name = "alsa-ucm2-sheng";
+        paths = [ sp.alsa-ucm-sheng pkgs.alsa-ucm-conf ];
+      }}/share/alsa/ucm2";
   };
 }
