@@ -14,29 +14,28 @@
     # DTB by compatible string, which need not be the overlaid one.
     name = "qcom/sm8550-xiaomi-sheng.dtb";
 
-    # mdss_dp0 EPROBE_DEFERs forever on a Type-C retimer that never
-    # resolves. It is a required component of msm's aggregate KMS driver,
-    # so that alone leaves no /dev/dri/card0 at all -- including the
-    # internal DSI panel. No USB-C video-out needed here.
+    # There used to be a disable-dp-altmode overlay here, turning off
+    # displayport-controller@ae90000 because mdss_dp0 EPROBE_DEFERred
+    # forever on a Type-C retimer nothing provided -- and since it is a
+    # component of msm's aggregate KMS driver, that left no
+    # /dev/dri/card0 at all, internal panel included.
     #
-    # The root `compatible` block is required. apply_overlays.py silently
-    # skips an overlay whose compatible does not intersect the target
-    # dtb's, and one with none matches nothing. Omitting it builds clean
-    # and does nothing; check by decompiling the shipped .dtb.
-    overlays = [{
-      name = "disable-dp-altmode";
-      filter = "sm8550-xiaomi-sheng.dtb";
-      dtsText = ''
-        /dts-v1/;
-        /plugin/;
-        / {
-          compatible = "xiaomi,sheng", "qcom,sm8550";
-        };
-        &{/soc@0/display-subsystem@ae00000/displayport-controller@ae90000} {
-          status = "disabled";
-        };
-      '';
-    }];
+    # That reason is gone: CONFIG_TYPEC_MUX_PS5169 is enabled and the
+    # driver binds (/sys/bus/i2c/devices/3-0028 -> ps5169). Tested on
+    # hardware by booting the un-overlaid DTB -- the panel comes up
+    # normally and DRM gains card0-DP-1 alongside card0-DSI-1.
+    #
+    # Keeping it was expensive in a non-obvious way. The sound node's
+    # dai-links include DisplayPort Playback, and ONE unresolvable link
+    # fails the whole card:
+    #
+    #   platform sound: deferred probe pending: snd-sc8280xp:
+    #     DisplayPort Playback: codec dai not found
+    #
+    # so /proc/asound/cards read "no soundcards" -- no speakers and no
+    # microphone -- as a side effect of disabling a display feature.
+    # With DP enabled the card probes: snd-sc8280xp binds and
+    # "0 [XiaomiPad6SPro]: sm8550" appears.
   };
 
   # Bootloader is ./extlinux.nix.
