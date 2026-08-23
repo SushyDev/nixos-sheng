@@ -6,7 +6,7 @@ services:
     build: .
     container_name: sheng-builder
     ports:
-      - "127.0.0.1:2222:22"
+      - "127.0.0.1:${SHENG_BUILDER_PORT:-2222}:22"
     volumes:
       # Named volume, so the store survives container rebuilds. Docker
       # seeds it from the image on first run. Without it, `docker rm`
