@@ -5,15 +5,16 @@ services:
     image: sheng-builder:latest
     build: .
     container_name: sheng-builder
-    ports:
-      - "127.0.0.1:${SHENG_BUILDER_PORT:-2222}:22"
+
+    # No ports. Everything goes over `docker exec`, so nothing is exposed
+    # and there is no sshd, key or host-key trust to manage.
     volumes:
-      # Named volume, so the store survives container rebuilds. Docker
-      # seeds it from the image on first run. Without it, `docker rm`
-      # destroys the store and the next build recompiles the kernel,
-      # which is in no binary cache.
+      # Named volume, so the store survives container rebuilds. Without
+      # it, `docker rm` destroys the store and the next build recompiles
+      # the kernel, which is in no binary cache.
       - nix-store:/nix
-      - ./authorized_keys:/root/.ssh/authorized_keys:ro
+      # The flake, read-only. Built from here rather than copied in.
+      - ../:/workspace:ro
     restart: unless-stopped
 
 volumes:

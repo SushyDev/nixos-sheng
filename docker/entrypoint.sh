@@ -1,9 +1,9 @@
 #!/bin/sh
-# Run sshd, and stream build logs to stdout so they show up in `docker
-# logs` and the OrbStack UI.
+# Keep the container alive and stream build logs to stdout, so they show
+# up in `docker logs` and the OrbStack UI.
 #
-# Remote builds arrive over ssh, so their output goes to that session,
-# not to PID 1. Nix also writes each build's log under
+# Builds are started with `docker exec`, so their output goes to that
+# session rather than PID 1. Nix also writes each build's log under
 # /nix/var/log/nix/drvs; compress-build-log is off so those stay plain
 # text and can be tailed.
 set -e
@@ -14,12 +14,12 @@ readonly SEEN=/tmp/tailed-logs
 mkdir -p "$DRV_LOGS"
 : >"$SEEN"
 
-sshd -D -e &
-
 echo "sheng-builder ready; streaming build logs from $DRV_LOGS"
 
 while :; do
-  find "$DRV_LOGS" -type f 2>/dev/null | while read -r log; do
+  # Skip .bz2: logs written before compress-build-log was turned off are
+  # compressed, and dumping them to stdout is line noise.
+  find "$DRV_LOGS" -type f ! -name '*.bz2' 2>/dev/null | while read -r log; do
     grep -qxF "$log" "$SEEN" && continue
     echo "$log" >>"$SEEN"
     echo "=== $(basename "$log") ==="

@@ -1,13 +1,22 @@
-# Bring up the aarch64-linux Docker builder.
+# Drive the aarch64-linux Docker builder.
 #
 # Determinate's native Linux builder has no network, so fixed-output
 # derivations cannot fetch in it. This container can.
 #
-# Usage: builder [up|down|status|machines]
+# Everything goes over `docker exec`: no exposed port, no sshd, no keys.
+# The flake is bind-mounted read-only at /workspace.
+#
+# Usage:
+#   builder up                 start it
+#   builder down               stop it
+#   builder status             container state and store size
+#   builder build <attr>       build an attr, print its store path
+#   builder fetch <attr> [dir] build it and copy the result out
 
 readonly DIR="${SHENG_DOCKER_DIR:-./docker}"
-readonly KEY="${SHENG_BUILDER_KEY:-$HOME/.ssh/sheng-builder}"
-readonly PORT="${SHENG_BUILDER_PORT:-2222}"
+readonly NAME=sheng-builder
+readonly FLAKE=/workspace
+readonly SYSTEM=aarch64-linux
 
 die() {
   echo "$*" >&2
@@ -18,45 +27,54 @@ compose() {
   docker compose -f "$DIR/compose.yaml" "$@"
 }
 
-ensure_key() {
-  [ -f "$KEY" ] && return 0
-  echo "generating $KEY"
-  ssh-keygen -t ed25519 -N '' -C sheng-builder -f "$KEY" >/dev/null
+in_builder() {
+  docker exec "$NAME" /root/.nix-profile/bin/bash -c "$*"
 }
 
-# compose bind-mounts this read-only into the container.
-ensure_authorized_keys() {
-  cp "$KEY.pub" "$DIR/authorized_keys"
+require_running() {
+  docker ps --filter "name=$NAME" --format '{{.Names}}' | grep -qx "$NAME" ||
+    die "$NAME is not running -- try: builder up"
 }
 
-# nix.conf reads `builders = @/etc/nix/machines`. Fields are:
-# uri system sshKey maxJobs speedFactor features mandatoryFeatures hostKey
-machines_line() {
-  echo "ssh-ng://root@127.0.0.1:$PORT aarch64-linux $KEY 8 1 big-parallel,benchmark - -"
+# Prints the store path on the last line; build chatter goes to stderr so
+# callers can capture it cleanly.
+build() {
+  local -r attr="${1:?usage: builder build <attr>}"
+  require_running
+  in_builder "nix build --print-out-paths --print-build-logs \
+    '$FLAKE#packages.$SYSTEM.$attr'"
 }
 
-up() {
-  ensure_key
-  ensure_authorized_keys
-  SHENG_BUILDER_PORT="$PORT" compose up -d
-  echo
-  echo "add to /etc/nix/machines to let nix offload to it:"
-  echo "  $(machines_line)"
+# Streamed as a tar rather than `docker cp`: store paths are read-only,
+# and cp recreates those modes as it goes, then cannot write into the
+# directory it just made.
+fetch() {
+  local -r attr="${1:?usage: builder fetch <attr> [dir]}"
+  local -r dest="${2:-./result}"
+  local path
+
+  path="$(build "$attr" | tail -1)" || die "build failed"
+  [ -n "$path" ] || die "build produced no output path"
+
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  docker exec "$NAME" tar -C "$path" -cf - . |
+    tar -xf - -C "$dest" --no-same-permissions
+  chmod -R u+w "$dest"
+  echo "$dest"
 }
 
 status() {
-  SHENG_BUILDER_PORT="$PORT" compose ps
-  ssh -i "$KEY" -p "$PORT" \
-    -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
-    root@127.0.0.1 'nix --version; df -h /nix | tail -1' 2>&1 ||
-    die "cannot reach builder on port $PORT"
+  compose ps
+  require_running
+  in_builder 'nix --version; ls /nix/store | wc -l'
 }
 
 case "${1:-up}" in
-  up) up ;;
-  down) SHENG_BUILDER_PORT="$PORT" compose down ;;
+  up) compose up -d ;;
+  down) compose down ;;
   status) status ;;
-  machines) machines_line ;;
-  *) die "usage: builder [up|down|status|machines]" ;;
+  build) shift && build "$@" ;;
+  fetch) shift && fetch "$@" ;;
+  *) die "usage: builder [up|down|status|build <attr>|fetch <attr> [dir]]" ;;
 esac
