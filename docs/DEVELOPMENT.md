@@ -25,12 +25,13 @@ nixos/
 
 | Module | Does |
 |---|---|
-| `hardware.nix` | Kernel, device tree (+ a `disable-dp-altmode` overlay), kernel params, root filesystem, firmware, serial getty, networking. Unconditional. |
+| `hardware.nix` | Kernel, device tree (+ a `disable-dp-altmode` overlay), kernel params, root filesystem, firmware, networking. Unconditional. |
 | `image.nix` | `system.build.shengImage` — the ext4 + sparse rootfs images. |
 | `extlinux.nix` | A fork of `generic-extlinux-compatible` that also writes U-Boot's `sheng-bootmenu.env`. |
 | `firmware.nix` | `services.shengFirmware.enable` — the vendor userspace. |
 | `boot-slot.nix` | `services.shengBootSlot.enable` — `qbootctl -m`. |
 | `nix-bootstrap.nix` | `services.shengNixBootstrap.enable` — first-boot store registration. |
+| `serial-console.nix` | `services.shengSerialConsole.enable` — the ttyGS0 gadget console. Off by default. |
 
 **U-Boot lives in a different repository.** It is pinned as the non-flake input
 `u-boot-src` (`github:SushyDev/u-boot`, branch `xiaomi-sheng`). To build against a local
@@ -357,8 +358,6 @@ so the numbers confirm a cut took effect and only the *screen* needs a human to 
 
 ## Known issues
 
-- `modules/firmware.nix` has `iio-sensor-proxy` commented out — one of its patches is
-  fetched from `gitlab.postmarketos.org`, which the aarch64 builder sandbox cannot resolve.
 - `docker/authorized_keys` is a leftover of an earlier sshd-based builder design; nothing
   in the current `Dockerfile` or `compose.yaml` uses it.
 - `hardware.nix` ships root autologin, a baked root password (`password`) and a disabled

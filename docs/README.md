@@ -112,9 +112,6 @@ keyboard helper, 120 W charging authentication, ALSA UCM — behind the single s
 >   (`g_serial.use_acm=1` in the boot.img cmdline is for the kernel, which does provide a
 >   USB serial console.)
 > - **No dual-boot.** Android is overwritten.
-> - `iio-sensor-proxy` is currently commented out in `modules/firmware.nix` — one of its
->   patches is fetched from `gitlab.postmarketos.org`, which the aarch64 builder sandbox
->   cannot resolve.
 
 ---
 
@@ -348,7 +345,7 @@ packages do.
 | `fastrpc` | The FastRPC daemon (`adsprpcd-sensorspd`) that carries every DSP-side service. |
 | `libssc` | Qualcomm's Sensor Sub-System client library — the sensors sit on top of it. |
 | `sheng-sensors` | udev rules binding the SSC sensor nodes. |
-| `iio-sensor-proxy` | Accelerometer/ALS to the desktop. **Currently disabled** — see [What is not implemented](#what-is-not-implemented). |
+| `iio-sensor-proxy` | Accelerometer/ALS/proximity/compass to the desktop, patched to read them from the SSC stack via `libssc`. |
 | `sheng-devauth` | Device authentication service, required by the fingerprint stack. |
 | `sheng-fingerprint` | FPC1553 reader: `fprintd` integration, `qteesupplicant` and `sfsconfig` for the TrustZone side, and its udev rules. |
 | `sheng-thp` | Touch Host Processing — the DSP-side half of the touchscreen. |
