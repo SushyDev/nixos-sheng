@@ -68,21 +68,36 @@ in
 
     imageSize = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
-      default = "10G";
+      default = null;
       description = ''
-        Fixed size to grow the image to after building (must be at least
-        as large as the populated content). Set to null to leave the
-        image auto-sized to its contents instead.
+        Fixed size to grow the image to after building, or null to leave
+        it auto-sized to its contents.
 
-        Defaults to a fixed size, and measurement is why: img2simg drops
-        the empty blocks either way, so the sparse image you actually
-        flash is 2,479,710,700 bytes at "10G" against 2,479,241,764 at
-        null -- a 0.02% difference, i.e. no saving in flash time at all.
-        What the fixed size does buy is slack: 7.5G free on first boot
-        rather than 160M. fileSystems."/".autoResize (x-systemd.growfs,
-        since there is no initrd) should expand to the whole partition
-        before anything needs the space, but if it ever does not, 160M is
-        a bad place to land.
+        Defaults to null, and this is not a preference -- setting a size
+        corrupts the filesystem. resize2fs writes the block groups it adds
+        with bitmap checksums the kernel rejects, while build-time e2fsck
+        reports the image clean, so nothing catches it until the device
+        boots. Measured on hardware from a "16G" image:
+
+          EXT4-fs error (device sda29): ext4_validate_block_bitmap:423:
+            bg 96: bad block bitmap checksum
+          EXT4-fs warning: ext4_resize_begin:81: There are errors in the
+            filesystem, so online resizing is not allowed
+
+        The corrupt groups (96, 112) are both inside the range resize2fs
+        added -- the populated image had ~20. The filesystem then reads
+        "clean with errors", and the kernel refuses every later resize, so
+        fileSystems."/".autoResize (x-systemd.growfs, since there is no
+        initrd) can never expand it. That cost 217G of a 232G partition:
+        the device sat at 16G with 4.4G free and no way to grow.
+
+        Sizing it up is also pointless even when it works. img2simg drops
+        the empty blocks, so the sparse image you actually flash was
+        2,479,710,700 bytes at "10G" against 2,479,241,764 at null -- a
+        0.02% difference. The fixed size buys nothing and breaks growfs.
+
+        Set it only if you have a reason to ship a pre-sized filesystem
+        and have checked the result on hardware.
       '';
     };
 
