@@ -7,7 +7,20 @@
 #   0x7fffffff  stage never reached
 #   anything    -errno from that stage
 
-readonly KEY="${SHENG_KEY:-$PWD/sheng-devkey}"
+# Dev files (key, ip cache) live at the project root, which is not
+# necessarily $PWD -- the flake is a subdirectory. Search upward.
+sheng_root() {
+  local dir="$PWD"
+  local _
+  for _ in 1 2 3 4; do
+    [ -e "$dir/sheng-devkey" ] && { echo "$dir"; return 0; }
+    dir="$(dirname "$dir")"
+  done
+  echo "$PWD"
+}
+ROOT="$(sheng_root)"
+readonly ROOT
+readonly KEY="${SHENG_KEY:-$ROOT/sheng-devkey}"
 readonly NEVER_REACHED=2147483647
 
 readonly STAGES=(
@@ -39,7 +52,7 @@ dev() {
   ssh "${ssh_opts[@]}" "root@$IP" "$@"
 }
 
-raw="$(dev 'od -An -v -tx4 --endian=big /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null || true')"
+raw="$(dev 'od -An -v -tx4 --endian=little /proc/device-tree/chosen/sheng,mdss-status 2>/dev/null || true')"
 [ -n "${raw// /}" ] || die "no sheng,mdss-status property"
 
 describe() {
@@ -60,6 +73,7 @@ echo "device $IP"
 echo
 
 first_failure=""
+reached=0
 i=0
 for word in $raw; do
   [ "$i" -lt "${#STAGES[@]}" ] || break
@@ -69,6 +83,7 @@ for word in $raw; do
 
   case "$status" in
     FAILED*) [ -n "$first_failure" ] || first_failure="${STAGES[$i]}" ;;
+    ok) reached=$((reached + 1)) ;;
   esac
   i=$((i + 1))
 done
@@ -76,6 +91,8 @@ done
 echo
 if [ -n "$first_failure" ]; then
   echo "first failing stage: $first_failure"
+elif [ "$reached" -le 1 ]; then
+  echo "inherited ABL's live display; cold bring-up was skipped"
 else
   echo "all stages ok -- a blank panel means the fault is after probe"
 fi

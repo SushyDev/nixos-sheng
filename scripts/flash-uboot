@@ -11,8 +11,21 @@
 # Usage: flash-uboot [boot.img]
 
 readonly IMG="${1:-./result/boot.img}"
-readonly KEY="${SHENG_KEY:-$PWD/sheng-devkey}"
-readonly IP_CACHE="${SHENG_IP_CACHE:-$PWD/.sheng-ip}"
+# Dev files (key, ip cache) live at the project root, which is not
+# necessarily $PWD -- the flake is a subdirectory. Search upward.
+sheng_root() {
+  local dir="$PWD"
+  local _
+  for _ in 1 2 3 4; do
+    [ -e "$dir/sheng-devkey" ] && { echo "$dir"; return 0; }
+    dir="$(dirname "$dir")"
+  done
+  echo "$PWD"
+}
+ROOT="$(sheng_root)"
+readonly ROOT
+readonly KEY="${SHENG_KEY:-$ROOT/sheng-devkey}"
+readonly IP_CACHE="${SHENG_IP_CACHE:-$ROOT/.sheng-ip}"
 
 ssh_opts=(
   -i "$KEY"
