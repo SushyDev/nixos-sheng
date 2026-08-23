@@ -7,6 +7,7 @@
     ./hardware.nix
     ./image.nix
     ./nix-bootstrap.nix
+    ./serial-console.nix
   ];
 
   services.shengFirmware.enable = true;

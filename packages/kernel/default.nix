@@ -592,9 +592,9 @@ let
 
   # Our own additions on top of the known-working base config:
   # - USB ConfigFS ACM/serial gadget + legacy USB_G_SERIAL: upstream
-  #   sm8550.config doesn't enable either; USB_G_SERIAL is built-in and
-  #   auto-binds the UDC at boot, giving ttyGS0 with no userspace step
-  #   (see hardware.nix).
+  #   sm8550.config doesn't enable either. USB_G_SERIAL is =m and is
+  #   loaded on demand by services.shengSerialConsole.enable, which is
+  #   off by default (see modules/serial-console.nix).
   # - GPIO_SHARED_PROXY=y (was =m upstream): matches the locally
   #   confirmed-working sm8550.config.
   # - TYPEC_MUX_PS5169 disabled: drivers/usb/typec/mux/ps5169.c at this
@@ -614,7 +614,12 @@ let
   ourConfigFragment = builtins.toFile "sheng-extra.config" ''
     CONFIG_USB_CONFIGFS_ACM=y
     CONFIG_USB_CONFIGFS_SERIAL=y
-    CONFIG_USB_G_SERIAL=y
+    # =m, NOT =y. Built in, this auto-binds the UDC at boot, which pins
+    # the Type-C port in peripheral mode for the life of the system --
+    # no hubs, no keyboards, no DisplayPort alt mode, and no way to turn
+    # it off short of a kernel rebuild. As a module it loads only when
+    # services.shengSerialConsole.enable asks for it.
+    CONFIG_USB_G_SERIAL=m
     CONFIG_GPIO_SHARED_PROXY=y
     # ENABLED (was "is not set") -- this is why the DRM master stopped
     # binding and Linux went black.

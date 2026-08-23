@@ -61,7 +61,7 @@
   boot.consoleLogLevel = lib.mkDefault 4;
   boot.kernelParams = [
     "console=ttyMSM0,115200n8"
-    "console=ttyGS0"
+    # console=ttyGS0 is added by serial-console.nix when that is enabled.
     "console=tty0"
     "fbcon=map:0"
     "root=PARTLABEL=${config.sheng.rootfs.partlabel}"
@@ -85,20 +85,9 @@
   # cannot read the .zst NixOS ships by default. Blobs are small.
   hardware.firmwareCompression = "none";
 
-  # ttyGS0 comes from CONFIG_USB_G_SERIAL=y, which auto-binds the UDC at
-  # boot. Do not add a ConfigFS gadget service as well: two gadget drivers
-  # on one UDC re-enumerate mid-boot and kill serial output.
-
-  systemd.services."serial-getty@ttyGS0" = {
-    enable = true;
-    wantedBy = [ "multi-user.target" ];
-    # The base template references $TERM but never sets it on this tty;
-    # unset, agetty dies with "checkname failed". Restart=always so a USB
-    # re-enumeration does not leave the console dead.
-    environment.TERM = "vt102";
-    serviceConfig.Restart = "always";
-    serviceConfig.RestartSec = "1";
-  };
+  # The ttyGS0 serial gadget console lives in serial-console.nix and is
+  # off by default: binding a gadget to the UDC keeps the Type-C port in
+  # peripheral mode, which costs USB host mode (hubs, keyboards, DP alt).
 
   # hci0 comes up on its own; this only starts bluetoothd on top of it.
   hardware.bluetooth.enable = false;
@@ -129,5 +118,13 @@
   # so a runtime drop-in loses to it. NOT SECURE -- change before sharing.
   services.getty.autologinUser = "root";
 
-  system.stateVersion = "24.11";
+  # mkDefault so a downstream host config can pin its own -- this is a
+  # module other people build systems from, and stateVersion is a property
+  # of the install, not of the hardware.
+  #
+  # 26.11 matches the nixpkgs this flake locks. It is deliberately NOT the
+  # usual "never change this" case: nothing has been installed from an
+  # older release, the value was only ever a placeholder, and flashing
+  # userdata wipes the state it would otherwise be protecting.
+  system.stateVersion = lib.mkDefault "26.11";
 }
