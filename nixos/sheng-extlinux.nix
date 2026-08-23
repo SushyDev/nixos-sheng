@@ -78,7 +78,18 @@ let
       declare -A kept
 
       # Copy a store path under $target/nixos, flattened to one name, and
-      # echo that name. Idempotent: identical store paths reuse the copy.
+      # report that name in the global $result. Idempotent: identical
+      # store paths reuse the copy.
+      #
+      # RESULT COMES BACK IN A GLOBAL, NOT ON STDOUT, and callers must
+      # invoke this as `copyIn x; y=$result` rather than `y=$(copyIn x)`.
+      # Command substitution runs in a SUBSHELL, so `kept[...]` set inside
+      # one is lost to the parent -- which left `kept` empty and made the
+      # prune loop below delete every kernel and dtb it had just copied.
+      # /boot/nixos ended up empty, extlinux.conf's LINUX pointed at
+      # nothing, and U-Boot fell through to the rescue path on every boot.
+      # nixpkgs' own extlinux-conf-builder.sh uses this same global-result
+      # idiom for the same reason.
       copyIn() {
         local src dst
         src=$(readlink -f "$1")
@@ -88,7 +99,7 @@ let
           mv "$dst.tmp.$$" "$dst"
         fi
         kept["$dst"]=1
-        basename "$dst"
+        result=$(basename "$dst")
       }
 
       # $1 = system path, $2 = tag ("default" or a generation number)
@@ -97,8 +108,9 @@ let
         p=$(readlink -f "$1")
         # No initrd test -- see the header. Only the kernel is required.
         [ -e "$p/kernel" ] || return 0
-        k=$(copyIn "$p/kernel")
-        d=$(copyIn "$(readlink -m "$p/dtbs")")
+        # Not $(copyIn ...) -- see the comment on copyIn.
+        copyIn "$p/kernel"; k=$result
+        copyIn "$(readlink -m "$p/dtbs")"; d=$result
         label=$(cat "$p/nixos-version")
         params=$(cat "$p/kernel-params")
 
@@ -126,10 +138,6 @@ let
       menutmp="$target/.sheng-bootmenu.env.$$"
       : > "$menutmp"
 
-      # Generated entries start at 2: sheng.env owns 0 (boot current) and
-      # 1 (fastboot), so the menu is never empty even if this file is
-      # missing. cmd/bootmenu.c stops at the first gap, so these must stay
-      # contiguous.
       # Collected with a glob rather than `ls`: no parsing of ls output,
       # and a glob that matches nothing simply skips the loop body.
       gens=()
@@ -149,17 +157,37 @@ let
         mapfile -t ordered < <(printf '%s\n' "''${gens[@]}" | sort -nr | head -n "$limit")
       fi
 
-      n=2
+      # Generated entries start at 1 and OVERWRITE sheng.env's static
+      # bootmenu_1 (fastboot), which is re-emitted as the LAST entry
+      # afterwards. That keeps "Reboot to fastboot" at the bottom of the
+      # menu instead of stranded above the generation list.
+      #
+      # Still safe: `env import` only overwrites what this file defines,
+      # so if it is missing or fails to load, sheng.env's static
+      # bootmenu_0 (boot current) and bootmenu_1 (fastboot) both survive.
+      # There is always a way to boot and always a way into fastboot.
+      #
+      # cmd/bootmenu.c stops at the first gap, so these must stay
+      # contiguous from 0.
+      n=1
       for g in ''${ordered[@]+"''${ordered[@]}"}; do
         link=/nix/var/nix/profiles/system-$g-link
         entry "$link" "$g" >> "$tmp"
-        ts=$(date '+%Y-%m-%d %H:%M' -d "@$(stat -L -c %Z "$link")")
+        # stat WITHOUT -L: -L follows the symlink into the store, whose
+        # mtime is normalised to the epoch, so every generation rendered
+        # as 1970-01-01. The profile link's own mtime is when the
+        # generation was actually created.
+        ts=$(date '+%Y-%m-%d %H:%M' -d "@$(stat -c %Y "$link")")
         # Title must not contain '=': cmd/bootmenu.c splits on the FIRST
         # one. nixos-version labels and timestamps never do.
         printf 'bootmenu_%d=NixOS generation %s (%s)=setenv pxe_label_override nixos-%s; run bootlinux\n' \
           "$n" "$g" "$ts" "$g" >> "$menutmp"
         n=$((n + 1))
       done
+
+      # Fastboot last. rebootfastboot itself is defined in sheng.env.
+      printf 'bootmenu_%d=Reboot to fastboot (bootloader)=run rebootfastboot\n' \
+        "$n" >> "$menutmp"
 
       mv -f "$tmp" "$target/extlinux/extlinux.conf"
       mv -f "$menutmp" "$target/sheng-bootmenu.env"
