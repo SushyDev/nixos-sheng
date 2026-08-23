@@ -72,9 +72,32 @@ in
       description = ''
         Fixed size to grow the image to after building (must be at least
         as large as the populated content). Set to null to leave the
-        image auto-sized to its contents instead -- fine since
-        fileSystems."/".autoResize is enabled, but a fixed size matching
-        the target partition avoids any ambiguity when flashing.
+        image auto-sized to its contents instead.
+
+        Defaults to a fixed size, and measurement is why: img2simg drops
+        the empty blocks either way, so the sparse image you actually
+        flash is 2,479,710,700 bytes at "10G" against 2,479,241,764 at
+        null -- a 0.02% difference, i.e. no saving in flash time at all.
+        What the fixed size does buy is slack: 7.5G free on first boot
+        rather than 160M. fileSystems."/".autoResize (x-systemd.growfs,
+        since there is no initrd) should expand to the whole partition
+        before anything needs the space, but if it ever does not, 160M is
+        a bad place to land.
+      '';
+    };
+
+    keepRawImage = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Also ship the raw ext4 image next to the Android sparse one.
+
+        Off by default because nothing consumes it: flash-rootfs defaults
+        to the sparse image and only accepts a raw one as a magic-sniffed
+        fallback. Keeping it costs imageSize bytes of disk per fetch on
+        the build host (10G, against 2.5G for the sparse image) for a file
+        that is normally never opened. Turn it on to loopback-mount the
+        filesystem and look inside.
       '';
     };
   };
@@ -86,7 +109,10 @@ in
       }
       ''
         mkdir -p "$out"
-        img="$out/sheng-rootfs.img"
+        # Built in $TMPDIR and only installed into $out if asked for: the
+        # raw image is an intermediate for img2simg, and at imageSize it
+        # is four times the size of the thing anyone actually flashes.
+        img="$TMPDIR/sheng-rootfs.img"
 
         cp --reflink=auto ${rawImage} "$img"
         chmod +w "$img"
@@ -114,24 +140,32 @@ in
           # the error flag set). Loop until e2fsck itself reports a clean
           # pass (exit 0); fail the build loudly rather than ship an image
           # e2fsck never actually finished fixing.
-          echo "Final filesystem check..."
-          clean=0
-          for i in 1 2 3 4; do
-            if e2fsck -fy "$img"; then
-              echo "e2fsck reported clean on pass $i"
-              clean=1
-              break
-            fi
-            echo "e2fsck pass $i made changes, re-checking..."
-          done
-          if [ "$clean" != 1 ]; then
-            echo "e2fsck did not converge to clean after 4 passes -- refusing to ship this image" >&2
-            exit 1
-          fi
         ''}
+
+        # Unconditional: the imageSize = null path never resizes, but an
+        # unverified image is not worth shipping either way, and on that
+        # path this is a couple of seconds.
+        echo "Final filesystem check..."
+        clean=0
+        for i in 1 2 3 4; do
+          if e2fsck -fy "$img"; then
+            echo "e2fsck reported clean on pass $i"
+            clean=1
+            break
+          fi
+          echo "e2fsck pass $i made changes, re-checking..."
+        done
+        if [ "$clean" != 1 ]; then
+          echo "e2fsck did not converge to clean after 4 passes -- refusing to ship this image" >&2
+          exit 1
+        fi
 
         echo "Converting to Android sparse format..."
         img2simg "$img" "$out/sheng-rootfs.sparse.img"
+
+        ${lib.optionalString cfg.keepRawImage ''
+          mv "$img" "$out/sheng-rootfs.img"
+        ''}
       '';
   };
 }
