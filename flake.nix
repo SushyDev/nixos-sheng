@@ -21,7 +21,7 @@
     }:
     let
       # The device. Building these on anything else needs a remote builder;
-      # see docker/README.md.
+      # see docs/README.md.
       target = "aarch64-linux";
 
       # Where the flashing and debug scripts run.
@@ -61,18 +61,32 @@
           # Kept in python: they parse a binary blackbox and drive a unix
           # socket, which bash would only make worse.
           mkPython =
-            name:
-            hostPkgs.runCommand name { nativeBuildInputs = [ hostPkgs.python3 ]; } ''
-              install -Dm755 ${./scripts}/${name} $out/bin/${name}
-              patchShebangs $out/bin/${name}
-            '';
+            name: runtimeInputs:
+            hostPkgs.runCommand name
+              {
+                nativeBuildInputs = [
+                  hostPkgs.python3
+                  hostPkgs.makeWrapper
+                ];
+              }
+              ''
+                install -Dm755 ${./scripts}/${name} $out/bin/${name}
+                patchShebangs $out/bin/${name}
+                ${hostPkgs.lib.optionalString (runtimeInputs != [ ]) ''
+                  wrapProgram $out/bin/${name} \
+                    --prefix PATH : ${hostPkgs.lib.makeBinPath runtimeInputs}
+                ''}
+              '';
+
+          # Each script is its own derivation, so read-blackbox cannot find
+          # exec next to itself the way it can in the source tree.
+          exec = mkPython "exec" [ ];
         in
         {
-          inherit find-sheng;
+          inherit find-sheng exec;
 
-          exec = mkPython "exec";
-          read-blackbox = mkPython "read-blackbox";
-          capture-linux-dpu = mkPython "capture-linux-dpu";
+          read-blackbox = mkPython "read-blackbox" [ exec ];
+          capture-linux-dpu = mkPython "capture-linux-dpu" [ exec ];
 
           soak = mk "soak" [
             hostPkgs.openssh
@@ -128,7 +142,8 @@
           {
             default = sheng.config.system.build.shengImage;
 
-            # Sparse userdata.img to flash onto a fresh device.
+            # $out/sheng-rootfs.sparse.img, flashed onto the userdata
+            # partition of a fresh device.
             nixos = sheng.config.system.build.shengImage;
 
             u-boot = pkgs.callPackage ./packages/u-boot {

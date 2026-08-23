@@ -15,16 +15,19 @@ zeros on both sides and looked like a match. The DSC encoder config has
 never actually been compared.
 
 Usage:
-    ./capture-linux-dpu.sh                 # capture + print
-    ./capture-linux-dpu.sh bb84.txt        # capture + diff against a blackbox log
+    capture-linux-dpu                 # capture + print
+    capture-linux-dpu bb84.txt        # capture + diff against a blackbox log
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 
+# Packaged as its own derivation, so a sibling next to __file__ only exists
+# when this is run straight out of the source tree. Prefer PATH.
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXEC = os.path.join(HERE, "exec.sh")
+EXEC = shutil.which("exec") or os.path.join(HERE, "exec")
 
 DPU = 0x0AE01000
 DSI0 = 0x0AE94004
@@ -49,11 +52,11 @@ BLOCKS = [
     ("DSI0",           DSI0,          0x000, 192),
 ]
 
-CHUNK = 48  # registers per exec.sh round trip; keeps each command short
+CHUNK = 48  # registers per exec round trip; keeps each command short
 
 
 def dev(cmd):
-    r = subprocess.run(["python3", EXEC, cmd], capture_output=True,
+    r = subprocess.run([EXEC, cmd], capture_output=True,
                        text=True, timeout=600)
     return r.stdout.strip()
 

@@ -3,7 +3,7 @@
 (/tmp/nixos-socket <- tio -m INLCRNL -S unix:/tmp/nixos-socket /dev/cu.usbmodemXXX)
 and print everything up to the next shell prompt.
 
-Usage: ./exec.sh '<command>'
+Usage: exec '<command>'
 """
 import socket
 import sys
@@ -36,7 +36,7 @@ def strip_ansi(data: bytes) -> str:
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: ./exec.sh '<command>'", file=sys.stderr)
+        print("usage: exec '<command>'", file=sys.stderr)
         sys.exit(1)
     cmd = sys.argv[1]
 

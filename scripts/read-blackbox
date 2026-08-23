@@ -11,9 +11,10 @@ be reported as "first mismatching offset + count" with the actual values
 never visible. This raises the budget to ~512KB.
 
 Usage:
-    ./read-blackbox.sh            # print the log
-    ./read-blackbox.sh out.txt    # also save it
+    read-blackbox            # print the log
+    read-blackbox out.txt    # also save it
 """
+import shutil
 import subprocess
 import sys
 import os
@@ -23,12 +24,14 @@ BB_HDR = 16
 BB_MAGIC = 0x53484742  # 'SHGB'
 MAX = 512 * 1024
 
+# Packaged as its own derivation, so a sibling next to __file__ only exists
+# when this is run straight out of the source tree. Prefer PATH.
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXEC = os.path.join(HERE, "exec.sh")
+EXEC = shutil.which("exec") or os.path.join(HERE, "exec")
 
 
 def dev(cmd):
-    r = subprocess.run(["python3", EXEC, cmd], capture_output=True, text=True,
+    r = subprocess.run([EXEC, cmd], capture_output=True, text=True,
                        timeout=300)
     return r.stdout.strip()
 
@@ -42,7 +45,7 @@ def main():
     ).split()
     if len(hdr) < 3:
         sys.exit(f"could not read blackbox header (got {hdr!r}) -- is the "
-                 f"device up and exec.sh working?")
+                 f"device up and exec working?")
 
     magic, length, overflow = (int(x, 16) for x in hdr)
     if magic != BB_MAGIC:
