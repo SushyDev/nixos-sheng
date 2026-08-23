@@ -118,13 +118,27 @@ in
         chmod +w "$img"
 
         ${lib.optionalString (cfg.imageSize != null) ''
+          # Check BEFORE truncating. truncate cannot refuse, so on a
+          # too-small imageSize it chops the filesystem and resize2fs then
+          # fails with "New size smaller than minimum (N)" -- N in blocks,
+          # no mention of the option that set it, and the image already
+          # damaged by the time you read it.
+          e2fsck -fy "$img" || true
+          min_blocks="$(resize2fs -P "$img" 2>/dev/null | awk '{ print $NF }')"
+          want_blocks=$(( $(numfmt --from=iec ${cfg.imageSize}) / 4096 ))
+          if [ "$want_blocks" -lt "$min_blocks" ]; then
+            echo "sheng.rootfs.imageSize is ${cfg.imageSize}, but this configuration needs at least" >&2
+            echo "$(( (min_blocks * 4096 + 1073741823) / 1073741824 ))G of filesystem to hold it." >&2
+            echo "Raise sheng.rootfs.imageSize, or set it to null to auto-size to the contents." >&2
+            exit 1
+          fi
+
           echo "Growing image to ${cfg.imageSize}..."
           # truncate before resize2fs, not after: resize2fs needs the file
           # already at its final size to grow into. Doing it the other way
           # around shipped images with the ext4 error flag set (systemd-
           # growfs-root.service refusing to run at boot).
           truncate -s ${cfg.imageSize} "$img"
-          e2fsck -fy "$img" || true
           resize2fs "$img" ${cfg.imageSize}
 
           # A single e2fsck pass after growing isn't enough: e2fsck's exit
