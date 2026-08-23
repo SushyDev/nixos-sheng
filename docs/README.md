@@ -208,9 +208,27 @@ To enter fastboot: hold **POWER for ~15 s** until the device powers off, then ho
 ```sh
 fastboot erase dtbo_ab
 fastboot flash boot_ab  boot.img
+fastboot erase userdata
 fastboot flash userdata sheng-rootfs.sparse.img
 fastboot reboot
 ```
+
+> **Do not skip `fastboot erase userdata`.** The rootfs is an Android sparse image,
+> which is mostly `DONT_CARE` chunks, and this bootloader's sparse writer leaves those
+> regions holding whatever the partition held before rather than zeroing them. ext4's
+> uninitialised block groups then find garbage where they expect zeros, and the kernel
+> rejects them on the first mount:
+>
+> ```
+> EXT4-fs error (device sda29): ext4_validate_block_bitmap:423:
+>   comm ext4lazyinit: bg 99: bad block bitmap checksum
+> ```
+>
+> That sets the filesystem error flag, after which the kernel refuses every resize, so
+> `growfs` can never expand `/` past the image size — leaving a 13 GB root on a 232 GB
+> partition with no way to grow it. Coming from stock Android is the **worst** case, not
+> the safe one: `userdata` is full of Android's data, and that is precisely what those
+> `DONT_CARE` regions preserve.
 
 Both slots are written because ABL chooses which one to boot and the choice is not
 yours to make reliably.
@@ -223,8 +241,9 @@ nix run .#fastboot-flash    # boot_a + boot_b from ./result/boot.img
 nix run .#flash-rootfs      # userdata from ./result/sheng-rootfs.sparse.img
 ```
 
-> **Note** — these two do not erase `dtbo`. Do that by hand, once, on a first install.
-> `flash-rootfs` asks you to type `wipe` to confirm.
+> **Note** — `flash-rootfs` does erase `userdata` for you, for the reason above, and asks
+> you to type `wipe` to confirm. Neither script erases `dtbo`; do that by hand, once, on
+> a first install.
 
 > **If the device boots into fastboot on its own and stays there**, the A/B retry counter
 > ran out. Recover with `fastboot set_active b && fastboot reboot`. Once NixOS is up,
