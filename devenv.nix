@@ -7,6 +7,19 @@
 # runc/OrbStack issue with this Nix image's symlinked /etc/passwd), so this
 # talks to it over the SSH bridge on localhost:2222 instead, using a
 # throwaway keypair already added to the container's authorized_keys.
+#
+# NOTE: tried switching this to Determinate Nix's native Linux builder
+# (https://docs.determinate.systems/troubleshooting/native-linux-builder/)
+# -- the `nix build` plumbing itself works (see git history of this file
+# for that version), but the builder VM has no working DNS/network at all
+# (confirmed with a trivial nixpkgs fetchurl test), which breaks every
+# fixed-output derivation in this flake's closure. Plain fetchurl/
+# fetchFromGitHub fetches can be worked around by vendoring content into
+# the local store by hash ahead of time, but firmware/iio-sensor-proxy.nix's
+# fetchpatch calls normalize patch text *inside* the sandboxed builder
+# before hashing, which can't be faked from outside. Reverted to this
+# known-working container/SSH path until the VM's networking is fixed
+# upstream.
 let
   # ssh takes -p for the port, scp takes -P -- these can't share one opts
   # string despite otherwise-identical flags.
@@ -22,14 +35,31 @@ in
     exec = ''
       set -euo pipefail
       mkdir -p .devenv-build
+
+      echo "→ packing source..."
       tar --exclude='.git' --exclude='result' --exclude='result-*' --exclude='.devenv' --exclude='.devenv-build' \
         -czf .devenv-build/src.tar.gz .
-      scp ${scpOpts} .devenv-build/src.tar.gz ${builder}:/root/nixos-src.tar.gz
-      ssh ${sshOpts} ${builder} \
+
+      echo "→ copying to builder..."
+      scp ${scpOpts} -o ConnectTimeout=10 .devenv-build/src.tar.gz ${builder}:/root/nixos-src.tar.gz
+
+      echo "→ extracting on builder..."
+      ssh ${sshOpts} -o ConnectTimeout=10 ${builder} \
         'rm -rf /root/sheng-nixos && mkdir -p /root/sheng-nixos && tar -xzf /root/nixos-src.tar.gz -C /root/sheng-nixos'
-      ssh ${sshOpts} ${builder} 'cd /root/sheng-nixos && nix build --no-link --print-out-paths .#shengImage' \
+
+      echo "→ building (streamed, not buffered -- a stall here shows up immediately instead of going silent)..."
+      # ServerAliveInterval/CountMax so a dead-but-not-closed connection surfaces
+      # as an error within ~30s instead of hanging indefinitely.
+      ssh ${sshOpts} -o ServerAliveInterval=10 -o ServerAliveCountMax=3 ${builder} \
+        'cd /root/sheng-nixos && nix build --no-link --print-out-paths --print-build-logs .#shengImage' \
         | tee .devenv-build/last-build-path.txt
-      echo "✓ Built: $(cat .devenv-build/last-build-path.txt)"
+
+      out_path=$(tail -n1 .devenv-build/last-build-path.txt)
+      if [ -z "$out_path" ]; then
+        echo "✗ build produced no output path -- see above for where it stopped" >&2
+        exit 1
+      fi
+      echo "✓ Built: $out_path"
     '';
   };
 

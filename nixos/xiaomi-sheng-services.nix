@@ -20,7 +20,12 @@ in
     environment.systemPackages = [
       sp.fastrpc
       sp.libssc
-      sp.iio-sensor-proxy
+      # sp.iio-sensor-proxy: TEMPORARILY removed -- one of its patches
+      # fetches from gitlab.postmarketos.org, which the remote aarch64-
+      # linux builder's sandbox can't resolve DNS for (confirmed: same
+      # failure with local network access, so it's the builder VM's own
+      # network config, not a real infra outage). Unrelated to display/
+      # backlight work; re-add once that's sorted out.
       sp.sheng-sensors
       sp.sheng-devauth
       sp.sheng-fingerprint
@@ -34,7 +39,7 @@ in
 
     systemd.packages = [
       sp.fastrpc # adsprpcd-sensorspd.service
-      sp.iio-sensor-proxy # iio-sensor-proxy.service + 10-sheng-sensors.conf drop-in
+      # sp.iio-sensor-proxy: TEMPORARILY removed, see systemPackages above
       sp.sheng-devauth # sheng-devauth.service (Requires=qteesupplicant.service)
       sp.sheng-fingerprint # qteesupplicant.service, sfsconfig.service, fprintd.service.d/*
       sp.sheng-thp # xiaomi-sheng-thp.service
@@ -43,10 +48,8 @@ in
     ];
 
     systemd.services = {
-      # fastrpc's unit only fires once iio-sensor-proxy wants it
-      # (WantedBy=iio-sensor-proxy.service in the unit itself), but we
-      # still need iio-sensor-proxy + fprintd's own service enabled.
-      "iio-sensor-proxy".wantedBy = [ "multi-user.target" ];
+      # "iio-sensor-proxy".wantedBy: TEMPORARILY removed, see
+      # systemPackages above (package itself excluded from this build)
       "sheng-devauth".wantedBy = [ "sysinit.target" ];
       "qteesupplicant".wantedBy = [ "multi-user.target" ];
       "sfsconfig".wantedBy = [ "qteesupplicant.service" ];

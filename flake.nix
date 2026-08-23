@@ -27,6 +27,8 @@
         shengImage = self.nixosConfigurations.sheng.config.system.build.shengImage;
         default = self.packages.${system}.shengImage;
         shengKernel = pkgs.shengKernel;
+        shengMdssTestModule = pkgs.callPackage ./kernel/mdss-test-module { };
+
       } // pkgs.shengPackages;
 
       apps.${system}.build-image = {

@@ -17,7 +17,7 @@
 , meson
 , ninja
 , pkg-config
-, patchelf
+, autoPatchelfHook
 , glib
 , gusb
 , nss
@@ -43,7 +43,14 @@ stdenv.mkDerivation {
     hash = "sha256-EgP2w+60JpeTrHJf0AKN9Vmo/SdEpKXtv/j4mtkwmF4=";
   };
 
-  nativeBuildInputs = [ meson ninja pkg-config patchelf ];
+  # autoPatchelfHook fixes the prebuilt QTEE blobs' (qteesupplicant,
+  # qtee-listeners/*.so, libfpc1553-qtee.so) ELF interpreter + RPATH --
+  # confirmed on hardware: without it, qteesupplicant.service failed with
+  # "NixOS cannot run dynamically linked executables intended for generic
+  # linux environments" (exit 127). Their only NEEDED libs (libc, libm,
+  # libpthread, libglib/gio/gobject, libgusb) are already covered by
+  # buildInputs below.
+  nativeBuildInputs = [ meson ninja pkg-config autoPatchelfHook ];
   buildInputs = [ glib gusb nss pixman ];
 
   LIBFPRINT_TARBALL = libfprintSrc;
