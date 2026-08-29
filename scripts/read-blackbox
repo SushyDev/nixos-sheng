@@ -24,8 +24,7 @@ BB_HDR = 16
 BB_MAGIC = 0x53484742  # 'SHGB'
 MAX = 512 * 1024
 
-# Packaged as its own derivation, so a sibling next to __file__ only exists
-# when this is run straight out of the source tree. Prefer PATH.
+# Prefer PATH: a sibling next to __file__ only exists in the source tree.
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXEC = shutil.which("exec") or os.path.join(HERE, "exec")
 
@@ -60,8 +59,6 @@ def main():
     if length == 0 or length > MAX:
         sys.exit(f"implausible length {length}")
 
-    # dd straight out of /dev/mem: one transfer instead of `length/4`
-    # devmem round-trips over the serial bridge.
     start = BB_BASE + BB_HDR
     count = (length + 4095) // 4096 + 1
     skip = start // 4096   # 0xa5000000 >> 12 == 675840

@@ -1,17 +1,18 @@
 # Userspace client library for Qualcomm's Sensor Core (SSC) DSP stack --
 # talks QMI/QRTR to the sensorspd daemon running on the aDSP.
 # Source: https://codeberg.org/DylanVanAssche/libssc
-{ lib
-, stdenv
-, fetchFromGitea
-, fetchpatch
-, meson
-, ninja
-, pkg-config
-, glib
-, protobuf
-, protobufc
-, libqmi
+{
+  lib,
+  stdenv,
+  fetchFromGitea,
+  fetchpatch,
+  meson,
+  ninja,
+  pkg-config,
+  glib,
+  protobuf,
+  protobufc,
+  libqmi,
 }:
 
 stdenv.mkDerivation {
@@ -26,11 +27,8 @@ stdenv.mkDerivation {
     hash = "sha256-UPLKuePBKgQsA0qgY5xcvoj6jpxHhxJ9pMWJdD23LSg=";
   };
 
-  # Adds a 5x1s retry loop around the SSC QRTR/QMI service lookup, since
-  # sensorspd can take a moment to enumerate on QRTR after
-  # adsprpcd-sensorspd.service starts. Fetched from the reference
-  # packaging rather than vendored, since we never inspected the literal
-  # diff content.
+  # Adds a 5x1s retry around the SSC service lookup: sensorspd takes a moment
+  # to enumerate on QRTR after adsprpcd-sensorspd.service starts.
   patches = [
     (fetchpatch {
       url = "https://raw.githubusercontent.com/ianchb/debian-sheng/master/patches/wait_for_qmi_service.patch";
@@ -38,12 +36,19 @@ stdenv.mkDerivation {
     })
   ];
 
-  nativeBuildInputs = [ meson ninja pkg-config protobuf ];
+  nativeBuildInputs = [
+    meson
+    ninja
+    pkg-config
+    protobuf
+  ];
   buildInputs = [ glib ];
-  # libssc.pc's Requires: pulls in qmi-glib/protobuf-c -- propagate so
-  # downstream consumers (iio-sensor-proxy, sheng-thp, ...) resolving
-  # libssc via pkg-config also get these on their own PKG_CONFIG_PATH.
-  propagatedBuildInputs = [ protobufc libqmi ];
+  # libssc.pc Requires: these, so consumers resolving it via pkg-config need
+  # them on their own PKG_CONFIG_PATH.
+  propagatedBuildInputs = [
+    protobufc
+    libqmi
+  ];
 
   meta = {
     description = "Client library for Qualcomm Sensor Core (SSC)";

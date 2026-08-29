@@ -1,11 +1,13 @@
-# Flat mirror of /lib/firmware for the sheng board: WCN7850 (ath12k), Cirrus
-# CS35L43 amp DSP images, FPC1553 fingerprint firmware, Novatek touch fw,
-# Qualcomm sm8550/sheng ADSP/CDSP/battmgr/IPA/VPU images, ALSA topology.
-#
+# Flat mirror of /lib/firmware for the sheng board.
 # Source: https://github.com/ianchb/sheng-firmware (branch: master)
-# NOTE: this repo ships no LICENSE file -- fine for flashing your own
-# device, but redistribution terms are undefined. Flag before publishing.
-{ lib, stdenvNoCC, fetchFromGitHub }:
+#
+# This repo ships no LICENSE file, so redistribution terms are undefined.
+# Flag before publishing.
+{
+  lib,
+  stdenvNoCC,
+  fetchFromGitHub,
+}:
 
 stdenvNoCC.mkDerivation {
   pname = "sheng-firmware-blobs";

@@ -1,9 +1,11 @@
-# Qualcomm Sensor Core (SSC) registry/config JSON blobs for the sheng
-# board's accelerometer, magnetometer, ALS/proximity, and SAR sensors,
-# plus the udev rule that tags the fastrpc-adsp misc device so
-# iio-sensor-proxy's SSC backend recognizes it.
+# Qualcomm SSC registry blobs for the board's sensors, plus the udev rule that
+# tags fastrpc-adsp so iio-sensor-proxy's SSC backend recognizes it.
 # Source: https://github.com/alghiffaryfa19/sheng-sensors-file
-{ lib, stdenvNoCC, fetchFromGitHub }:
+{
+  lib,
+  stdenvNoCC,
+  fetchFromGitHub,
+}:
 
 stdenvNoCC.mkDerivation {
   pname = "sheng-sensors";

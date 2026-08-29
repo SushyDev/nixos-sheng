@@ -1,10 +1,11 @@
-# Framebuffer charger-mode screen shown when the kernel cmdline carries
-# androidboot.mode=charger (powered-off charging UI).
-#
-# NOTE: same situation as sheng-mipps-auth.nix -- no source exists, only a
-# checked-in prebuilt ELF. Low priority for a console-only dev image;
-# included for parity with the reference build.
-{ lib, stdenvNoCC, fetchFromGitHub, autoPatchelfHook }:
+# Framebuffer charger-mode screen, shown when the cmdline carries
+# androidboot.mode=charger. Prebuilt ELF; no source exists.
+{
+  lib,
+  stdenvNoCC,
+  fetchFromGitHub,
+  autoPatchelfHook,
+}:
 
 stdenvNoCC.mkDerivation {
   pname = "sheng-charger-mode";

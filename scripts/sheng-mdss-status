@@ -1,14 +1,11 @@
-# Decode U-Boot's per-stage display bring-up status from the device.
-#
-# Run after a boot that showed backlight but no picture. U-Boot writes one
-# slot per stage and relays them into /chosen.
+# Decode U-Boot's per-stage display bring-up status, relayed into /chosen.
+# Run after a boot that showed backlight but no picture.
 #
 #   0           stage succeeded
 #   0x7fffffff  stage never reached
 #   anything    -errno from that stage
 
-# Dev files (key, ip cache) live at the project root, which is not
-# necessarily $PWD -- the flake is a subdirectory. Search upward.
+# Dev files (key, ip cache) live at the project root, not necessarily $PWD.
 sheng_root() {
   local dir="$PWD"
   local _
@@ -46,7 +43,6 @@ die() {
 IP="$(find-sheng)" || die "device not found"
 readonly IP
 
-# Args are expanded locally before being sent, which is what callers want.
 # shellcheck disable=SC2029
 dev() {
   ssh "${ssh_opts[@]}" "root@$IP" "$@"

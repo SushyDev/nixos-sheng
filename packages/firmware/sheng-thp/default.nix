@@ -1,7 +1,15 @@
 # NT36532E userspace touch host processor: reads raw THP frames from the
 # kernel driver and exposes multitouch + Focus Pen stylus via uinput.
 # Source: https://github.com/ianchb/xiaomi-sheng-thp
-{ lib, stdenv, fetchFromGitHub, pkg-config, coreutils, glib, libssc }:
+{
+  lib,
+  stdenv,
+  fetchFromGitHub,
+  pkg-config,
+  coreutils,
+  glib,
+  libssc,
+}:
 
 stdenv.mkDerivation {
   pname = "sheng-thp";
@@ -15,25 +23,24 @@ stdenv.mkDerivation {
   };
 
   nativeBuildInputs = [ pkg-config ];
-  buildInputs = [ glib libssc ];
+  buildInputs = [
+    glib
+    libssc
+  ];
 
-  # Upstream's Makefile hardcodes -I/usr/include/libssc (assumes an FHS
-  # system-wide install) instead of using pkg-config; point it at the
-  # actual Nix store path. Also drops -Werror, too strict against newer
-  # compilers than this was written against.
+  # Upstream's Makefile hardcodes -I/usr/include/libssc instead of using
+  # pkg-config. -Werror is too strict for compilers this new.
   postPatch = ''
     substituteInPlace Makefile \
       --replace-fail -Werror "" \
       --replace-fail "/usr/include/libssc" "${libssc}/include/libssc"
   '';
 
-  installFlags = [ "PREFIX=${placeholder "out"}" "DESTDIR=" ];
+  installFlags = [
+    "PREFIX=${placeholder "out"}"
+    "DESTDIR="
+  ];
 
-  # Upstream's .service unit hardcodes /usr/bin/test and
-  # /usr/libexec/xiaomi-sheng-thp/... (confirmed on hardware: both
-  # ExecStartPre checks failed with "Unable to locate executable
-  # '/usr/bin/test'", exit 203/EXEC -- the actual reason the touch
-  # processor never started).
   postInstall = ''
     substituteInPlace "$out/lib/systemd/system/xiaomi-sheng-thp.service" \
       --replace-fail "/usr/bin/test" "${coreutils}/bin/test" \

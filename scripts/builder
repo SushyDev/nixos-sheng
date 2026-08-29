@@ -1,10 +1,5 @@
-# Drive the aarch64-linux Docker builder.
-#
-# Determinate's native Linux builder has no network, so fixed-output
-# derivations cannot fetch in it. This container can.
-#
-# Everything goes over `docker exec`: no exposed port, no sshd, no keys.
-# The flake is bind-mounted read-only at /workspace.
+# Drive the aarch64-linux Docker builder. Determinate's native Linux builder
+# has no network, so fixed-output derivations cannot fetch in it.
 #
 # Usage:
 #   builder up                 start it
@@ -36,8 +31,6 @@ require_running() {
     die "$NAME is not running -- try: builder up"
 }
 
-# Prints the store path on the last line; build chatter goes to stderr so
-# callers can capture it cleanly.
 build() {
   local -r attr="${1:?usage: builder build <attr>}"
   require_running
@@ -45,9 +38,8 @@ build() {
     '$FLAKE#packages.$SYSTEM.$attr'"
 }
 
-# Streamed as a tar rather than `docker cp`: store paths are read-only,
-# and cp recreates those modes as it goes, then cannot write into the
-# directory it just made.
+# Streamed as a tar rather than `docker cp`, which recreates the store's
+# read-only modes as it goes and then cannot write into its own directory.
 fetch() {
   local -r attr="${1:?usage: builder fetch <attr> [dir]}"
   local -r dest="${2:-./result}"
@@ -56,12 +48,9 @@ fetch() {
   path="$(build "$attr" | tail -1)" || die "build failed"
   [ -n "$path" ] || die "build produced no output path"
 
-  # Deliberately NOT `rm -rf "$dest"`. Both artifacts land in ./result --
-  # that is where fastboot-flash and flash-rootfs look by default -- and
-  # they come from two different attrs, so wiping the destination made
-  # `fetch u-boot && fetch nixos` silently delete boot.img. Extracting over
-  # the top can leave a stale file behind if a derivation stops emitting
-  # one; that is the lesser problem, and `rm -rf ./result` is right there.
+  # Deliberately NOT `rm -rf "$dest"`: both artifacts land in ./result from
+  # different attrs, so wiping it made `fetch u-boot && fetch nixos` delete
+  # boot.img. A stale file left behind is the lesser problem.
   mkdir -p "$dest"
   docker exec "$NAME" tar -C "$path" -cf - . |
     tar -xf - -C "$dest" --no-same-permissions

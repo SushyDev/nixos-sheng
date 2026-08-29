@@ -5,8 +5,7 @@
 # Usage: soak [count]
 
 readonly COUNT="${1:-15}"
-# Dev files (key, ip cache) live at the project root, which is not
-# necessarily $PWD -- the flake is a subdirectory. Search upward.
+# Dev files (key, ip cache) live at the project root, not necessarily $PWD.
 sheng_root() {
   local dir="$PWD"
   local _
@@ -37,7 +36,6 @@ ssh_opts=(
   -o LogLevel=ERROR
 )
 
-# The device takes a new DHCP lease every boot, so rediscover each time.
 wait_for_device() {
   local ip _
 
@@ -48,7 +46,6 @@ wait_for_device() {
   return 1
 }
 
-# Nonzero in any slot means that stage failed.
 failed_stages() {
   local -r ip="$1"
   local raw word bad="" i=0

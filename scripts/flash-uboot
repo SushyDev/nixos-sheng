@@ -1,18 +1,11 @@
-# Flash U-Boot to both boot slots over SSH, then reboot.
-#
-# boot_a and boot_b are ordinary GPT partitions and the rootfs is mounted
-# rw, so they can be written in place. That avoids holding buttons and
-# re-logging into a console for every test build.
-#
-# Both slots are written. Which one is live is ambiguous -- fastboot lands
-# in boot_a, dd went to boot_b -- and writing only the inactive slot
-# succeeds, verifies, and changes nothing.
+# Flash U-Boot to both boot slots over SSH, then reboot. Both, because which
+# one is live is ambiguous, and writing only the inactive slot succeeds,
+# verifies, and changes nothing.
 #
 # Usage: flash-uboot [boot.img]
 
 readonly IMG="${1:-./result/boot.img}"
-# Dev files (key, ip cache) live at the project root, which is not
-# necessarily $PWD -- the flake is a subdirectory. Search upward.
+# Dev files (key, ip cache) live at the project root, not necessarily $PWD.
 sheng_root() {
   local dir="$PWD"
   local _
@@ -51,7 +44,6 @@ readonly IMG_SHA IMG_SIZE
 IP="$(find-sheng)" || die "device not found"
 readonly IP
 
-# Args are expanded locally before being sent, which is what callers want.
 # shellcheck disable=SC2029
 dev() {
   ssh "${ssh_opts[@]}" "root@$IP" "$@"
@@ -60,10 +52,8 @@ dev() {
 echo "device at $IP"
 scp "${ssh_opts[@]}" "$IMG" "root@$IP:/root/boot-new.img" >/dev/null
 
-# Guards run per slot on the device. xbl/abl are the primary boot chain;
-# a write there is unrecoverable, so no target may ever resolve to them.
-# The remote checks against the local hash and size, so both are
-# substituted before the command is sent.
+# Guards run per slot on the device. A write to xbl/abl is unrecoverable, so
+# no target may ever resolve to them.
 dev "IMG_SHA='$IMG_SHA' IMG_SIZE='$IMG_SIZE' bash -s" <<'REMOTE'
 set -euo pipefail
 
@@ -86,7 +76,6 @@ resolve_slot() {
   target="$(readlink -f "$link")"
   [ -b "$target" ] || fail "$target not a block device"
 
-  # Catches a stale or dangling symlink.
   label="$(lsblk -no PARTLABEL "$target" | tr -d '[:space:]')"
   [ "$label" = "$slot" ] || fail "label '$label' != $slot"
 
@@ -134,8 +123,7 @@ write_slot boot_b
 rm -f /root/boot-new.img
 REMOTE
 
-# Does not wait for the device to return: it takes a new DHCP lease every
-# boot, so polling the old address just stalls until timeout.
+# Does not wait for the device: it takes a new DHCP lease every boot.
 echo "rebooting -- run find-sheng in ~40s"
 dev 'sync; (sleep 1; systemctl reboot) >/dev/null 2>&1 &' >/dev/null 2>&1 || true
 rm -f "$IP_CACHE"

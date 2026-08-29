@@ -1,8 +1,7 @@
 # Flash U-Boot over fastboot. Writes boot_a and boot_b, nothing else.
 #
-# The partition names are literals. They are never built from a variable
-# or an argument, so no input can redirect a write to xbl/abl -- those are
-# the primary boot chain and there is no recovery from damaging them.
+# The partition names are literals, never built from an argument, so no input
+# can redirect a write to xbl/abl. There is no recovery from damaging those.
 #
 # Usage: fastboot-flash [boot.img]
 
@@ -15,8 +14,6 @@ die() {
 
 require_boot_image() {
   [ -f "$IMG" ] || die "no image at $IMG"
-  # Android boot images start with this magic. Refuse anything else
-  # rather than writing an unknown blob to a boot partition.
   head -c 8 "$IMG" | grep -q '^ANDROID!' || die "$IMG is not an Android boot image"
 }
 

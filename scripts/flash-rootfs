@@ -1,7 +1,7 @@
 # Flash the rootfs image to userdata. WIPES THE DEVICE.
 #
-# "userdata" is a literal and is never built from an argument, so no input
-# can redirect a write to xbl/abl.
+# "userdata" is a literal, never built from an argument, so no input can
+# redirect a write to xbl/abl.
 #
 # Usage: flash-rootfs [sheng-rootfs.sparse.img]
 
@@ -14,7 +14,6 @@ die() {
   exit 1
 }
 
-# Refuse an unknown blob rather than writing it to a partition.
 image_kind() {
   local -r sparse="$(od -An -tx1 -N4 -j0 "$IMG" | tr -d ' \n')"
   local -r ext4="$(od -An -tx1 -N2 -j1080 "$IMG" | tr -d ' \n')"
@@ -45,20 +44,11 @@ echo "image:  $(basename "$IMG") ($kind)"
 echo "target: userdata"
 confirm
 
-# Erase before writing. A sparse image is mostly DONT_CARE chunks, and the
-# bootloader's sparse writer leaves those regions holding whatever was
-# there before rather than zeroing them. ext4's uninitialised block groups
-# then find garbage where they expect zeros, and the kernel rejects them on
-# first mount:
-#
-#   EXT4-fs error (device sda29): ext4_validate_block_bitmap:423:
-#     bg 99: bad block bitmap checksum
-#
-# which sets the error flag, which makes the kernel refuse every resize, so
-# systemd-growfs can never expand / past the image size. Measured: the same
-# image mounts clean on the build host with init_itable=0 forcing lazy init
-# to run, and comes up corrupt on the device -- in a different block group
-# each flash (96, 112, 99), tracking whatever the partition held before.
+# Erase before writing. A sparse image is mostly DONT_CARE chunks, which the
+# bootloader leaves holding whatever was there before rather than zeroing, so
+# ext4's uninitialised block groups find garbage where they expect zeros. The
+# kernel then sets the error flag and refuses every resize, and growfs can
+# never expand / past the image size.
 fastboot erase userdata
 fastboot flash userdata "$IMG"
 echo "done. reboot with: fastboot reboot"

@@ -2,33 +2,15 @@
 /*
  * sheng_dsi_lab -- interactive DSI command bench for the Xiaomi Pad 6S Pro.
  *
- * WHY THIS EXISTS
+ * Iterating panel-init questions in U-Boot costs a build, a flash, a reboot
+ * and a DRAM log read each. This runs them in Linux, where the transport is
+ * known-good and the command table lives in userspace.
  *
- * U-Boot's panel init provably does not configure the DDIC. That was
- * established with a paired control: the same kernel read path returns
- * ret=0 val=0x9e when Linux runs its own init, and ret=-61 (-ENODATA)
- * when only U-Boot has touched the panel -- with the panel confirmed
- * powered (avdd/avee IN_OUT=0x3) and reset confirmed deasserted
- * (GPIO133 IN_OUT=0x3), so the DDIC was awake and simply had nothing
- * to say. Meanwhile the U-Boot side is exhaustively verified: the 87
- * command payloads are byte-identical to the ones Linux transmits, they
- * leave the host at a measured LP escape rate, no DMA times out, the
- * reset pulse is physically real (pad reads 0x0 while driven low), and
- * every register in DPU/DSI/PHY/DISPCC matches live rendering silicon.
+ * A single mipi_dsi_device drives the bonded dual-DSI panel: the panel driver
+ * sends its whole init to dsi0 only, and qcom,sync-dual-dsi mirrors it.
  *
- * Iterating that in U-Boot costs a build, a flash, a reboot and a DRAM
- * log read per question. This module moves the experiment into Linux,
- * where the transport is known-good and a question costs one echo.
- *
- * THE KEY ENABLER: the panel driver sends its entire init sequence to
- * dsi0 ONLY -- "qcom,sync-dual-dsi in dsi nodes will send them to both
- * dsi ports" (panel-novatek-nt36532e.c). So a single mipi_dsi_device is
- * enough to drive a bonded dual-DSI panel, and dsi0 is reachable from
- * its DT node with no kernel patch at all.
- *
- * USAGE (pair with panel_novatek_nt36532e.noinit=1 so the panel is left
- * exactly as U-Boot configured it, while Linux still brings up host,
- * PHY, DPU and streams video):
+ * Pair with panel_novatek_nt36532e.noinit=1, so the panel keeps U-Boot's
+ * configuration while Linux still brings up host, PHY and DPU:
  *
  *   cat  /sys/kernel/debug/sheng_dsi/pm        # is the DDIC configured?
  *   echo "ff 26" > /sys/kernel/debug/sheng_dsi/send
@@ -36,8 +18,6 @@
  *   cat  init.txt > /sys/kernel/debug/sheng_dsi/send  # whole table
  *   cat  /sys/kernel/debug/sheng_dsi/status    # result of last batch
  *   echo hs > /sys/kernel/debug/sheng_dsi/mode # LP vs HS transmission
- *
- * The command table lives in userspace, so changing it costs nothing.
  */
 
 #include <linux/module.h>

@@ -1,7 +1,11 @@
 # Keyboard authentication daemon, paired with a kernel driver to
 # authenticate the Xiaomi detachable keyboard accessory.
 # Source: https://github.com/ianchb/sheng_devauth
-{ lib, stdenv, fetchFromGitHub }:
+{
+  lib,
+  stdenv,
+  fetchFromGitHub,
+}:
 
 stdenv.mkDerivation {
   pname = "sheng-devauth";
@@ -14,17 +18,9 @@ stdenv.mkDerivation {
     hash = "sha256-iLGMnlYJV3F4IhNUaSzsTqa1Wp5rHswxk7AuXof9HzA=";
   };
 
-  # main.c hardcodes /usr/lib/firmware/qcom/sm8550/sheng (an FHS path that
-  # doesn't exist on NixOS) as the TZ app's firmware directory, looked up
-  # directly rather than through the kernel firmware API (confirmed on
-  # hardware: "File /usr/lib/firmware/qcom/sm8550/sheng/devauth.mbn open
-  # error: No such file or directory"). /run/current-system/firmware is
-  # NixOS's stable, generation-independent firmware search root -- and,
-  # unlike the FHS convention, it IS the flattened root already (no nested
-  # lib/firmware/ inside it); confirmed on hardware that devauth.mbn
-  # actually lands at .../firmware/qcom/sm8550/sheng/devauth.mbn, so a
-  # first attempt at this fix that kept the "lib/firmware/" segment still
-  # 404'd.
+  # main.c hardcodes an FHS firmware directory, looked up directly rather than
+  # through the kernel firmware API. /run/current-system/firmware is already
+  # the flattened root, so there is no lib/firmware/ segment to keep.
   postPatch = ''
     substituteInPlace main.c \
       --replace-fail "/usr/lib/firmware/qcom/sm8550/sheng" \

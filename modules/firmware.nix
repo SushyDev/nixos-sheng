@@ -1,20 +1,18 @@
-# The single toggle for every sheng vendor userspace daemon: Qualcomm SSC
-# sensors (fastrpc/libssc/iio-sensor-proxy/sheng-sensors), keyboard auth,
-# fingerprint (+ its qteesupplicant QTEE runtime), stylus/pen status,
-# NT36532E touch host processor, keyboard fold-angle + mic-mute helper,
-# MiPPS charger auth, charger-mode UI, and the WCD938X ALSA UCM profile.
-#
-# hardware.nix (kernel, boot, console, USB gadget serial, base packages)
-# stays unconditional -- only vendor-specific daemons live behind this.
-{ config, lib, pkgs, ... }:
+# The single toggle for every sheng vendor userspace daemon. hardware.nix
+# stays unconditional; only vendor-specific daemons live behind this.
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.shengFirmware;
   sp = pkgs.shengPackages;
 in
 {
-  options.services.shengFirmware.enable =
-    lib.mkEnableOption "Xiaomi sheng vendor userspace stack (sensors, keyboard/pen/fingerprint/charger auth)";
+  options.services.shengFirmware.enable = lib.mkEnableOption "Xiaomi sheng vendor userspace stack (sensors, keyboard/pen/fingerprint/charger auth)";
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [
@@ -42,32 +40,12 @@ in
       sp.sheng-charger-mode # xiaomi-charger-mode.service
     ];
 
-    # The sheng-fingerprint package ships a patched libfprint plus the
-    # FPC1553 QTEE backend and an fprintd.service.d drop-in that points
-    # fprintd's LD_LIBRARY_PATH at them -- but it expects the distro to
-    # provide fprintd itself. Without this the drop-in has nothing to
-    # attach to: no fprintd, no D-Bus service, and so no fingerprint
-    # option anywhere in the desktop, even though the kernel side is up
-    # ("fpc1553 fingerprint_fpc: fpc1553 platform side ready") and
-    # qteesupplicant/sfsconfig are running.
+    # sheng-fingerprint's drop-in expects the distro to provide fprintd.
     services.fprintd.enable = true;
 
-    # The FPC1553 libfprint driver hardcodes FHS defaults:
-    #
-    #   #define FPC1553_DEFAULT_TA "/usr/lib/firmware/fpcsheng.elf"
-    #
-    # which does not exist here, so the trusted app never loads and every
-    # claim fails with "Open failed with error: Print was not found on the
-    # devices storage." -- a misleading message, since the print database
-    # is fine (the driver handles a missing one: both paths -ENOENT ->
-    # fpc_qtee_bio_load_empty_db). It is the TA that is missing.
-    #
-    # Same class of bug as sheng-devauth's hardcoded firmware directory.
-    # The other two defaults are already correct here:
-    # /sys/bus/platform/devices/fingerprint_fpc exists, and the data dir
-    # /var/lib/fpc1553 is created by the drop-in's StateDirectory=.
-    systemd.services.fprintd.environment.FPC1553_TA_PATH =
-      "/run/current-system/firmware/fpcsheng.elf";
+    # The driver's own default is an FHS path, and a missing trusted app
+    # surfaces as a misleading "Print was not found".
+    systemd.services.fprintd.environment.FPC1553_TA_PATH = "/run/current-system/firmware/fpcsheng.elf";
 
     systemd.services = {
       "iio-sensor-proxy".wantedBy = [ "multi-user.target" ];
@@ -118,17 +96,17 @@ in
       "${sp.sheng-pen-status}/etc/xdg/autostart/xiaomi-pen-status.desktop";
 
     environment.pathsToLink = [ "/share/alsa" ];
-    # A UNION of the sheng profile and upstream alsa-ucm-conf, not the
-    # sheng package alone. ALSA_CONFIG_UCM2 replaces the search path
-    # rather than extending it, so pointing it at a package holding only
-    # Xiaomi/sheng/*.conf hides ucm2/lib, ucm2/ucm.conf and everything
-    # else UCM needs to initialise. UCM then fails silently: the card is
-    # present with all its PCMs (pcm0p pcm1p pcm2c pcm3p) and wireplumber
-    # still reports zero sinks and zero sources -- no speakers, no mic.
-    environment.sessionVariables.ALSA_CONFIG_UCM2 =
-      "${pkgs.symlinkJoin {
+    # A union, not the sheng package alone: ALSA_CONFIG_UCM2 replaces the
+    # search path rather than extending it, and hiding ucm2/lib makes UCM fail
+    # silently -- every PCM present, zero sinks and sources.
+    environment.sessionVariables.ALSA_CONFIG_UCM2 = "${
+      pkgs.symlinkJoin {
         name = "alsa-ucm2-sheng";
-        paths = [ sp.alsa-ucm-sheng pkgs.alsa-ucm-conf ];
-      }}/share/alsa/ucm2";
+        paths = [
+          sp.alsa-ucm-sheng
+          pkgs.alsa-ucm-conf
+        ];
+      }
+    }/share/alsa/ucm2";
   };
 }

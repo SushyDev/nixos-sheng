@@ -1,26 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Diagnostic module: attempt to re-power the MDSS GDSC power domain by
- * calling pm_runtime_get_sync() on the still-present
- * "ae00000.display-subsystem" platform device, after msm_dpu's driver
- * unplugged itself following a bus fault (see project notes -- a
- * debugfs regmap dump of the DISPCC clock controller walked into a
- * gated register and faulted the interconnect, which took the display
- * off without a full kernel panic).
+ * Diagnostic module: re-power the MDSS GDSC after msm_dpu unplugs itself
+ * following a bus fault, by calling pm_runtime_get_sync() on the still-present
+ * display-subsystem platform device.
  *
- * This deliberately goes through the kernel's own genpd/gdsc framework
- * (the same gdsc_enable() in drivers/clk/qcom/gdsc.c already read for
- * the U-Boot port) rather than raw ioremap/writel from this module --
- * that first attempt (see git history of this file) correctly refused
- * to touch DISPCC's MMIO range at all because request_mem_region()
- * showed it's still exclusively owned by the live disp_cc-sm8550
- * clock-controller driver. Going through pm_runtime instead respects
- * that ownership instead of fighting it.
+ * Through genpd rather than raw ioremap/writel, because DISPCC's MMIO range is
+ * still exclusively owned by the live disp_cc-sm8550 driver.
  *
- * Logs the pm_genpd_summary-equivalent state before and after via the
- * return value of pm_runtime_get_sync(), then releases the reference.
- * One-shot: always returns non-zero from init so it doesn't stay
- * resident.
+ * One-shot: always returns non-zero from init so it does not stay resident.
  */
 
 #include <linux/module.h>

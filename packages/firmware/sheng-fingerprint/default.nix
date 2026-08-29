@@ -1,27 +1,21 @@
-# FPC1553 fingerprint sensor support via a patched libfprint + fprintd,
-# backed by Qualcomm's QTEE (TrustZone) runtime.
-#
-# Hybrid package: the backend glue (backend/src/*.c) and libfprint/fprintd
-# patches are real source, but the QTEE listener libraries and
-# qteesupplicant binary under prebuilt/aarch64/ are proprietary,
-# aarch64-only blobs (Qualcomm's closed TEE runtime) that cannot be
-# rebuilt from source -- this package will always carry that binary
-# component. It also provides qteesupplicant.service, which
-# sheng-devauth.service depends on.
+# FPC1553 fingerprint sensor via a patched libfprint, backed by Qualcomm's
+# QTEE runtime. Hybrid: the backend glue and patches are source, but
+# prebuilt/aarch64/ is proprietary blobs that cannot be rebuilt.
 #
 # Source: https://github.com/ianchb/xiaomi-sheng-fingerprint
-{ lib
-, stdenv
-, fetchFromGitHub
-, fetchurl
-, meson
-, ninja
-, pkg-config
-, autoPatchelfHook
-, glib
-, gusb
-, nss
-, pixman
+{
+  lib,
+  stdenv,
+  fetchFromGitHub,
+  fetchurl,
+  meson,
+  ninja,
+  pkg-config,
+  autoPatchelfHook,
+  glib,
+  gusb,
+  nss,
+  pixman,
 }:
 
 let
@@ -43,26 +37,27 @@ stdenv.mkDerivation {
     hash = "sha256-EgP2w+60JpeTrHJf0AKN9Vmo/SdEpKXtv/j4mtkwmF4=";
   };
 
-  # autoPatchelfHook fixes the prebuilt QTEE blobs' (qteesupplicant,
-  # qtee-listeners/*.so, libfpc1553-qtee.so) ELF interpreter + RPATH --
-  # confirmed on hardware: without it, qteesupplicant.service failed with
-  # "NixOS cannot run dynamically linked executables intended for generic
-  # linux environments" (exit 127). Their only NEEDED libs (libc, libm,
-  # libpthread, libglib/gio/gobject, libgusb) are already covered by
-  # buildInputs below.
-  nativeBuildInputs = [ meson ninja pkg-config autoPatchelfHook ];
-  buildInputs = [ glib gusb nss pixman ];
+  # autoPatchelfHook fixes the prebuilt QTEE blobs' ELF interpreter and RPATH;
+  # without it qteesupplicant.service exits 127.
+  nativeBuildInputs = [
+    meson
+    ninja
+    pkg-config
+    autoPatchelfHook
+  ];
+  buildInputs = [
+    glib
+    gusb
+    nss
+    pixman
+  ];
 
   LIBFPRINT_TARBALL = libfprintSrc;
 
-  # The top-level repo isn't itself a meson project -- scripts/build-*.sh
-  # invoke meson internally for the vendored libfprint copy -- so skip
-  # stdenv's automatic mesonConfigurePhase (would run against the repo
-  # root, which has no meson.build, and fail).
+  # The repo root has no meson.build of its own; the build scripts invoke
+  # meson internally for the vendored libfprint.
   dontConfigure = true;
 
-  # Verify the checked-in prebuilt QTEE blobs against the repo's own
-  # checksums before using them.
   postPatch = ''
     sha256sum -c prebuilt/aarch64/SHA256SUMS
   '';
@@ -116,7 +111,12 @@ stdenv.mkDerivation {
 
   meta = {
     description = "FPC1553 fingerprint sensor support for the sheng board (Apache-2.0 glue + LGPL/GPL patches; QTEE runtime blobs unfree)";
-    license = with lib.licenses; [ asl20 lgpl21Plus gpl2Plus bsd3 ];
+    license = with lib.licenses; [
+      asl20
+      lgpl21Plus
+      gpl2Plus
+      bsd3
+    ];
     platforms = [ "aarch64-linux" ];
   };
 }

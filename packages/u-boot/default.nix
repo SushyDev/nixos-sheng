@@ -29,12 +29,9 @@ in
 
   defconfig = "sm8550_defconfig";
 
-  # The MDSS driver's register sequencing is Zig, built by
-  # drivers/video/qualcomm/Makefile via scripts/Makefile.zig.
-  #
-  # Passed as a make variable rather than put on PATH: nixpkgs' zig ships
-  # a setup hook that replaces buildPhase with `zig build`, which fails
-  # here because there is no build.zig.
+  # The MDSS register sequencing is Zig. Passed as a make variable rather than
+  # put on PATH, because nixpkgs' zig hook would replace buildPhase with `zig
+  # build` and there is no build.zig here.
   extraMakeFlags = [ "ZIG=${lib.getExe zig}" ];
 
   filesToInstall = [

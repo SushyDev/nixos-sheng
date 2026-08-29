@@ -128,6 +128,13 @@ with either.
   nor PipeWire here and reports "camera is not supported on the platform".
   Snapshot and Kamoso (GStreamer) work. `libcamerify <app>` is the shim for
   V4L2-only applications.
+- **Greeter on-screen keyboard is unverified.** `modules/virtual-keyboard.nix`
+  gives SDDM's kwin greeter the `--inputmethod plasma-keyboard` that nixpkgs
+  omits, which is why the Breeze theme's keyboard button does nothing. Reasoned
+  from the nixpkgs and KDE sources and eval-checked, **not measured**. On the
+  device, check that a keyboard appears, that `pgrep plasma-keyboard` finds a
+  process while the greeter is up, and that `journalctl -u display-manager` is
+  free of kwin input-method errors.
 - **Cold-boot verification owed.** The audio, camera and Maliit fixes have
   all been applied with `nixos-rebuild switch` plus service restarts. The
   ordering of `sheng-alsa-ucm.service` against the sound card appearing has

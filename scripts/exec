@@ -43,7 +43,6 @@ def main():
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(SOCKET_PATH)
 
-    # Drain anything pending (banner/leftover prompt) before sending.
     s.setblocking(False)
     try:
         while True:
@@ -56,9 +55,8 @@ def main():
     full_cmd = f"{cmd}; echo {END_MARKER}\n"
     s.sendall(full_cmd.encode())
 
-    # The marker shows up twice: once in the local tty echo of what we
-    # typed, once in the real output of `echo __EXEC_DONE__`. Wait for
-    # the second occurrence before deciding we're done.
+    # The marker shows up twice, once in the tty echo of what we typed and
+    # once in the real output, so wait for the second.
     buf = b""
     deadline = time.time() + 20
     while time.time() < deadline:
@@ -80,8 +78,6 @@ def main():
     first = text.find(END_MARKER)
     second = text.find(END_MARKER, first + 1) if first != -1 else -1
     if first != -1 and second != -1:
-        # Real output lives between the end of the echoed input line
-        # (first marker) and the start of the real marker line (second).
         after_first = text.find("\n", first)
         text = text[after_first + 1:second] if after_first != -1 else ""
     elif first != -1:

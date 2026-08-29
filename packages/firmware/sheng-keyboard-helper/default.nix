@@ -2,7 +2,14 @@
 # keyboard/touchpad when folded back) and syncs the mic-mute LED with the
 # active PipeWire session.
 # Source: https://github.com/ianchb/xiaomi-sheng-keyboard-helper
-{ lib, stdenv, fetchFromGitHub, pkg-config, glib, libssc }:
+{
+  lib,
+  stdenv,
+  fetchFromGitHub,
+  pkg-config,
+  glib,
+  libssc,
+}:
 
 stdenv.mkDerivation {
   pname = "sheng-keyboard-helper";
@@ -16,12 +23,13 @@ stdenv.mkDerivation {
   };
 
   nativeBuildInputs = [ pkg-config ];
-  buildInputs = [ glib libssc ];
+  buildInputs = [
+    glib
+    libssc
+  ];
 
-  # Upstream's Makefile hardcodes -I/usr/include/libssc (assumes an FHS
-  # system-wide install) instead of using pkg-config; point it at the
-  # actual Nix store path. Also drops -Werror, too strict against newer
-  # compilers than this was written against.
+  # Upstream's Makefile hardcodes -I/usr/include/libssc instead of using
+  # pkg-config. -Werror is too strict for compilers this new.
   postPatch = ''
     substituteInPlace Makefile \
       --replace-fail -Werror "" \

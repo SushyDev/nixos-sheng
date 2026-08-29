@@ -1,8 +1,7 @@
 # Print the sheng's IP. Tries the cached address, then sweeps the /24.
 # The device takes a new DHCP lease every boot, so the cache goes stale.
 
-# Dev files (key, ip cache) live at the project root, which is not
-# necessarily $PWD -- the flake is a subdirectory. Search upward.
+# Dev files (key, ip cache) live at the project root, not necessarily $PWD.
 sheng_root() {
   local dir="$PWD"
   local _
@@ -27,7 +26,6 @@ ssh_opts=(
   -o LogLevel=ERROR
 )
 
-# A sheng has this partition; a random SSH host on the LAN does not.
 is_sheng() {
   local -r host="$1"
   ssh "${ssh_opts[@]}" "root@$host" 'test -e /dev/disk/by-partlabel/boot_a' 2>/dev/null
@@ -41,8 +39,6 @@ try_cache() {
   echo "$cached"
 }
 
-# Port-scan the whole /24 in parallel, then verify each hit. Scanning is
-# fast; the SSH check is not, so do it only for hosts with 22 open.
 sweep() {
   local -r prefix="${1%.*}"
   local -r hits="$(mktemp)"

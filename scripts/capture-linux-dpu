@@ -24,8 +24,7 @@ import shutil
 import subprocess
 import sys
 
-# Packaged as its own derivation, so a sibling next to __file__ only exists
-# when this is run straight out of the source tree. Prefer PATH.
+# Prefer PATH: a sibling next to __file__ only exists in the source tree.
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXEC = shutil.which("exec") or os.path.join(HERE, "exec")
 

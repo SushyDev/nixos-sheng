@@ -1,4 +1,3 @@
-# Everything a sheng needs to boot and rebuild itself.
 {
   imports = [
     ./audio.nix
@@ -10,6 +9,7 @@
     ./image.nix
     ./nix-bootstrap.nix
     ./serial-console.nix
+    ./virtual-keyboard.nix
   ];
 
   services.shengFirmware.enable = true;

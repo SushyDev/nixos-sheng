@@ -5,8 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
     # Not a flake; buildUBoot just needs the tree. Override to iterate
-    # without pushing:
-    #   nix build .#u-boot --override-input u-boot-src ../u-boot
+    # without pushing: nix build .#u-boot --override-input u-boot-src ../u-boot
     u-boot-src = {
       url = "github:SushyDev/u-boot/xiaomi-sheng";
       flake = false;
@@ -20,11 +19,9 @@
       u-boot-src,
     }:
     let
-      # The device. Building these on anything else needs a remote builder;
-      # see docs/README.md.
+      # Building for this on anything else needs a remote builder.
       target = "aarch64-linux";
 
-      # Where the flashing and debug scripts run.
       hostSystems = [
         "aarch64-darwin"
         "x86_64-darwin"
@@ -42,8 +39,6 @@
 
       sheng = self.lib.shengSystem { inherit nixpkgs; };
 
-      # writeShellApplication runs shellcheck at build time and pins the
-      # tools on PATH.
       mkScripts =
         hostPkgs:
         let
@@ -58,8 +53,6 @@
             hostPkgs.netcat
           ];
 
-          # Kept in python: they parse a binary blackbox and drive a unix
-          # socket, which bash would only make worse.
           mkPython =
             name: runtimeInputs:
             hostPkgs.runCommand name
@@ -78,8 +71,7 @@
                 ''}
               '';
 
-          # Each script is its own derivation, so read-blackbox cannot find
-          # exec next to itself the way it can in the source tree.
+          # Its own derivation, so read-blackbox cannot find it as a sibling.
           exec = mkPython "exec" [ ];
         in
         {
@@ -142,8 +134,6 @@
           {
             default = sheng.config.system.build.shengImage;
 
-            # $out/sheng-rootfs.sparse.img, flashed onto the userdata
-            # partition of a fresh device.
             nixos = sheng.config.system.build.shengImage;
 
             u-boot = pkgs.callPackage ./packages/u-boot {

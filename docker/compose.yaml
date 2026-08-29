@@ -1,19 +1,15 @@
 services:
   builder:
-    # Uses an existing sheng-builder:latest if present, otherwise builds
-    # from Dockerfile. `docker compose up --build` forces a rebuild.
     image: sheng-builder:latest
     build: .
     container_name: sheng-builder
 
-    # No ports. Everything goes over `docker exec`, so nothing is exposed
-    # and there is no sshd, key or host-key trust to manage.
+    # No ports: everything goes over `docker exec`, so there is no sshd or
+    # host-key trust to manage.
     volumes:
-      # Named volume, so the store survives container rebuilds. Without
-      # it, `docker rm` destroys the store and the next build recompiles
-      # the kernel, which is in no binary cache.
+      # Named volume, or `docker rm` destroys the store and the next build
+      # recompiles the kernel, which is in no binary cache.
       - nix-store:/nix
-      # The flake, read-only. Built from here rather than copied in.
       - ../:/workspace:ro
     restart: unless-stopped
 
