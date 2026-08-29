@@ -27,8 +27,8 @@ let
   rawSrc = fetchFromGitHub {
     owner = "ianchb";
     repo = "sm8550-mainline";
-    rev = "e87ae95664efe1c616f13be63f051e86ad9b762e";
-    hash = "sha256-EuJiqO7MpGO+Voi6/1euBXyS8/2FzGLibhvDFmeSzeM=";
+    rev = "ad75da348a020f0b7cb541ca2f06ab38cf77004d"; # sheng-7.2.2
+    hash = "sha256-ZZcBh6At2H4mpjK+hJe3JrUvTsujYdJFq9j7dJhS1kM=";
   };
 
   # Debug instrumentation for the U-Boot DSI work.
@@ -141,11 +141,11 @@ let
     installPhase = "cp -r . $out";
   };
 
-  version = "7.2.0-sheng";
+  version = "7.2.2-sheng";
 
   baseConfig = fetchurl {
-    url = "https://raw.githubusercontent.com/ianchb/debian-sheng/940232a99ef3d5b7c3e7308a0ca367a809dcc799/sm8550.config";
-    hash = "sha256-XEBixKV1QLAxQRtlK6cgKVXm3uarahL+dnr5MiurdI4=";
+    url = "https://raw.githubusercontent.com/ianchb/debian-sheng/1e2a85fb6d89acb8989c416c729696403744c7a7/sm8550.config";
+    hash = "sha256-4hPYqTPCriFY1D/xo9Eot0UD1QgWNkNQOOhccE1EJW0=";
   };
 
   ourConfigFragment = builtins.toFile "sheng-extra.config" ''
