@@ -1,0 +1,35 @@
+From: sheng-development
+Subject: [PATCH] Start polling for claims made while discovery was still running
+
+The hotplug path in sensor_changes() already handles a sensor appearing
+under existing claimants -- it checks g_hash_table_size(ht) and calls
+driver_set_polling(). The initial find_sensors() path has no such check,
+because upstream nothing can claim before it finishes.
+
+The SSC discovery wait is ~20s, and KWin claims the accelerometer as soon
+as the bus name registers, so on sheng it always lands inside that window.
+The claim is accepted and recorded in data->clients[], the sensor is opened
+seconds later, and nothing ever starts it: Claim() returned success, KWin
+believes it is subscribed, and no reading ever arrives. Auto-rotate stays
+dead until something re-runs KWin's applySensorChanges -- toggling the
+policy in System Settings, a lid event, or a tablet-mode change.
+
+Start polling for any sensor that already has clients once discovery is
+done.
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -787,6 +787,14 @@
+ 	if (!any_sensors_left (data))
+ 		goto bail;
+ 
++	/* A client can claim during the SSC discovery wait, and unlike the
++	 * hotplug path nothing here would ever start polling for it. */
++	for (i = 0; i < NUM_SENSOR_TYPES; i++) {
++		if (driver_type_exists (data, i) &&
++		    g_hash_table_size (data->clients[i]) > 0)
++			driver_set_polling (DEVICE_FOR_TYPE(i), TRUE);
++	}
++
+ 	/* Clients that read the properties during the SSC discovery wait saw
+ 	 * every sensor as absent, and no claim means no directed signal. */
+ 	send_dbus_event_for_client (data, NULL, PROP_ALL);

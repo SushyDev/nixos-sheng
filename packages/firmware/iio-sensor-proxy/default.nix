@@ -93,6 +93,7 @@ stdenv.mkDerivation {
     ./0100-allocate-client-tables-before-find-sensors.patch
     ./0101-ssc-do-not-tear-down-a-sensor-that-was-never-opened.patch
     ./0102-broadcast-sensor-availability-changes.patch
+    ./0103-start-polling-for-claims-made-during-discovery.patch
   ];
 
   # meson.build takes polkit's policydir from pkg-config with no override, so

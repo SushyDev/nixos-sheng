@@ -141,9 +141,18 @@ with either.
   auto-rotate only becomes available about 25 s after boot. Three fixes live
   in `packages/firmware/iio-sensor-proxy/`, all worth sending upstream:
   pmaports' no-exit patch left the client tables NULL (`0100-`), the SSC
-  drivers tore down a sensor that lazy-create had never made (`0101-`), and
+  drivers tore down a sensor that lazy-create had never made (`0101-`),
   availability was only ever signalled to clients holding a claim, so KWin
-  never learned the accelerometer had shown up (`0102-`).
+  never learned the accelerometer had shown up (`0102-`), and a claim that
+  arrived during the discovery wait was recorded but never started polling
+  (`0103-`).
+- **KWin never re-enables the sensor on its own.** `availableChanged` only
+  reaches `setAutoRotateAvailable()`, so the capability comes back but
+  `applySensorChanges()` — the sole caller of `OrientationSensor::setEnabled`
+  — is wired to lid, tablet-mode and reading events only. Upstream that gap
+  is unreachable because availability never changes after startup. `0103-`
+  covers it from our side by honouring the claim KWin already made; a real
+  fix belongs in KWin.
 - **Auto-rotate defaults to `inTabletMode` and `tabletMode` is always false.**
   `gpio-keys` advertises `SW_TABLET_MODE` but nothing drives it, so the policy
   has to be set to Always in System Settings for rotation to actually fire.
