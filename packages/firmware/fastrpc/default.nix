@@ -28,6 +28,10 @@ stdenv.mkDerivation rec {
   ];
   buildInputs = [ libyaml ];
 
+  # Upstream's default is /usr/share/qcom, which nothing on NixOS populates; an
+  # empty DSP search path makes the aDSP's sns_registry abort the whole ADSP.
+  configureFlags = [ "--with-config-base-dir=/var/lib/qcom" ];
+
   postInstall = ''
     install -Dm755 src/adsprpcd "$out/bin/adsprpcd"
     rm -rf "$out/share/fastrpc_test" "$out/bin/fastrpc_test"

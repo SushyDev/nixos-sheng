@@ -1,0 +1,70 @@
+From: sheng-development
+Subject: [PATCH] Broadcast sensor availability instead of only telling claimants
+
+send_dbus_event() builds its recipient list from data->clients[], so a
+PropertiesChanged for HasAccelerometer only ever reaches clients that
+already hold a claim. Upstream that is harmless: find_sensors() is a sysfs
+scan, so the property is already correct before anything connects.
+
+With the SSC drivers it is not. libssc waits 5s for the QRTR bus in every
+discover(), and there are four of them, so HasAccelerometer stays false for
+about 20s after the bus name is taken. KWin latches onto the service the
+moment it registers, reads HasAccelerometer once, gets false, and never
+hears otherwise -- it never claims the accelerometer, so it is not in
+data->clients[]. The output keeps Capability::AutoRotation unset and Plasma
+offers no auto-rotate control (kscreen-doctor: "Auto Rotate Policy:
+incapable").
+
+Availability is not private to claimants. Broadcast it, both when a driver
+appears or disappears and once discovery has finished. Readings stay
+directed at the clients that asked for them.
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -240,7 +240,7 @@
+ 	GVariantBuilder props_builder;
+ 	GVariant *props_changed = NULL;
+ 
+-	g_return_if_fail (destination_bus_name != NULL);
++	/* A NULL destination broadcasts */
+ 
+ 	g_variant_builder_init (&props_builder, G_VARIANT_TYPE ("a{sv}"));
+ 
+@@ -377,16 +377,21 @@
+ send_driver_changed_dbus_event (SensorData   *data,
+ 				DriverType    driver_type)
+ {
++	PropertiesMask mask;
++
+ 	if (driver_type == DRIVER_TYPE_ACCEL)
+-		send_dbus_event (data, PROP_HAS_ACCELEROMETER);
++		mask = PROP_HAS_ACCELEROMETER;
+ 	else if (driver_type == DRIVER_TYPE_LIGHT)
+-		send_dbus_event (data, PROP_HAS_AMBIENT_LIGHT);
++		mask = PROP_HAS_AMBIENT_LIGHT;
+ 	else if (driver_type == DRIVER_TYPE_PROXIMITY)
+-		send_dbus_event (data, PROP_HAS_PROXIMITY);
++		mask = PROP_HAS_PROXIMITY;
+ 	else if (driver_type == DRIVER_TYPE_COMPASS)
+-		send_dbus_event (data, PROP_HAS_COMPASS);
++		mask = PROP_HAS_COMPASS;
+ 	else
+ 		g_assert_not_reached ();
++
++	/* KWin reads HasAccelerometer without ever claiming the sensor */
++	send_dbus_event_for_client (data, NULL, mask);
+ }
+ 
+ static gboolean
+@@ -782,8 +787,10 @@
+ 	if (!any_sensors_left (data))
+ 		goto bail;
+ 
+-	send_dbus_event (data, PROP_ALL);
+-	send_dbus_event (data, PROP_ALL_COMPASS);
++	/* Clients that read the properties during the SSC discovery wait saw
++	 * every sensor as absent, and no claim means no directed signal. */
++	send_dbus_event_for_client (data, NULL, PROP_ALL);
++	send_dbus_event_for_client (data, NULL, PROP_ALL_COMPASS);
+ 	return;
+ 
+ bail:

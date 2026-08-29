@@ -1,57 +1,54 @@
 # TODO
 
-Known-unfinished hardware work, with what has already been ruled out so the
-next person does not repeat it. Everything here was measured on hardware.
+Unfinished hardware work, plus the odd solved case whose false leads are worth
+keeping. Everything here was measured on hardware.
 
 ---
 
-## Auto-rotate — blocked on the ADSP dropping the sensor PD
+## SOLVED — the ADSP crash loop (battery, sensors, MiPPS)
 
-**Symptom.** No auto-rotate. `iio-sensor-proxy` runs but reports
-`HasAccelerometer false`, and `ssccli --sensor accelerometer` fails with
-`SSC QMI Service not found`.
+Kept because the symptoms pointed everywhere except the cause.
 
-The accelerometer is only reachable through Qualcomm's SSC stack on the ADSP:
-`/sys/bus/iio/devices` is empty, so there is no kernel IIO accelerometer to
-fall back to. No SSC means no rotation, full stop.
+**Symptoms.** Every `/sys/class/power_supply/qcom-battmgr-bat/*` read returned
+`EAGAIN`; `upower` showed 0% and `battery-missing`. No auto-rotate,
+`HasAccelerometer false`. `xiaomi-mipps-auth` failed with `Read returned None`
+on the pmic-glink `xiaomi` node.
 
-**Fixed on the way here** (`fastrpc: give adsprpcd an RPATH to its own
-libraries`). `adsprpcd` could not `dlopen libadsp_default_listener.so.1` and
-restart-looped forever, because `postInstall` copies `src/adsprpcd` straight
-out of the build tree and so bypasses libtool's install step, leaving an
-RPATH of glibc only. Every downstream symptom pointed somewhere else. That
-error is gone.
-
-**Where it stops now.** With the library loading, the next failure appears:
+**Cause.** One thing: the ADSP was crashing and recovering roughly every five
+seconds, 76 times in the first eight minutes.
 
 ```
-adsp_default_listener.c:380: error 114: remote_handle_open("adsp_default_listener")
-dsprpcd.c:114: fastRPC device is not accessible, daemon exiting...
+PDM: service 'sensor_process' crash: 'EF:sensor_process:0x4:sns_registry:0x6b:sns_registry_s'
+qcom_q6v5_pas 6800000.remoteproc: fatal error received: err_qdi.c:1211:...:sns_registry_sensor.c:329:SNS_RC_SUCCESS == rc
 ```
 
-and `dmesg` shows the **ADSP restarting during the attempt** — `PDR:
-Indication received from msm/adsp/audio_pd` and `charger_pd` reappear
-mid-run. So opening the sensor PD appears to bring the DSP down.
+`sns_registry` aborts the whole ADSP when it cannot read its registry, and it
+reads it back over fastrpc from the AP's filesystem. fastrpc is compiled with
+`CONFIG_BASE_DIR=/usr/share/qcom` (configure.ac default), reads
+`$CONFIG_BASE_DIR/conf.d/*.yaml`, matches `/sys/firmware/devicetree/base/model`
+against the machine key, and uses that machine's `DSP_LIBRARY_PATH` relative to
+`CONFIG_BASE_DIR`. Debian's `sheng-sensors` deb unpacks straight to
+`/usr/share/qcom`, so it works there. The Nix derivation copied the same tree
+to `$out/usr/share/qcom` — a path no profile links — so the search path was
+empty. Everything else rides on the ADSP: `qcom_battmgr` and the `xiaomi`
+power-supply node are pmic-glink endpoints on that same DSP.
 
-**Ruled out already:**
+Fixed by `--with-config-base-dir=/var/lib/qcom` plus the `sheng-sensors-data`
+unit that seeds it. It has to be a writable copy, not the store path: the DSP
+writes `temp.json` back into the tree.
 
-- Not the udev tagging. `IIO_SENSOR_PROXY_TYPE=ssc-accel ...` and
-  `ACCEL_MOUNT_MATRIX` are both correctly set on `/sys/class/misc/fastrpc-adsp`.
-- Not missing firmware. `adsp.mbn`, `adsp_dtb.mbn` and the `.jsn` files are
-  byte-identical to `references/sheng-firmware`.
-- Not `iio-sensor-proxy` itself. It is installed, enabled and running; it
-  simply finds no accelerometer to expose.
-- Not the "sensor daemon races the ADSP" theory. Tested and wrong, and note
-  that `wantedBy = mkForce [ ]` does **not** stop either
-  `adsprpcd-sensorspd` or `iio-sensor-proxy` — udev/D-Bus activation starts
-  them regardless, which invalidated two attempts before this was noticed.
+The registry has to be there **before the ADSP boots**. Putting it in place on
+a running system stops the crash loop but the sensor PD never registers QMI
+service 400, so `ssccli` keeps reporting `SSC QMI Service not found`; only
+after `echo stop/start > /sys/class/remoteproc/remoteproc0/state` does
+`qrtr-DEBUG` show `added server on 5:21 -> service 400`. From a cold boot the
+seed unit orders before `adsprpcd-sensorspd`, so this is a debugging note, not
+a remaining bug.
 
-**Next step.** Compare against debian-sheng directly rather than reasoning
-about it: it runs the same daemon, the same firmware and reportedly has
-working sensors, so a runtime diff (dmesg around the PD open, module load
-order, what starts `adsprpcd` and when) should show what differs. Possibly
-related to the `qcom-apm gprsvc: CMD timeout for [1001021] opcode` seen on
-every boot — both are the ADSP not answering.
+**Everything else matched debian-sheng and was not the problem** — same kernel
+tree and `sm8550.config`, same fastrpc v1.0.2, same libssc with the same
+`wait_for_qmi_service.patch`, same iio-sensor-proxy patch set, and all 276
+sensor data files byte-identical.
 
 ---
 
@@ -139,6 +136,17 @@ with either.
   all been applied with `nixos-rebuild switch` plus service restarts. The
   ordering of `sheng-alsa-ucm.service` against the sound card appearing has
   not been proven from a cold boot.
-- **`iio-sensor-proxy` crashes on startup** (`client_vanished_cb` asserting
-  on a NULL hash table) and survives a manual restart. Secondary to the SSC
-  problem above, but it is an upstream bug worth reporting.
+- **`iio-sensor-proxy` takes ~20 s to expose all four sensors.** libssc waits
+  5 s for the QRTR bus on every `discover`, and there are four SSC drivers, so
+  auto-rotate only becomes available about 25 s after boot. Three fixes live
+  in `packages/firmware/iio-sensor-proxy/`, all worth sending upstream:
+  pmaports' no-exit patch left the client tables NULL (`0100-`), the SSC
+  drivers tore down a sensor that lazy-create had never made (`0101-`), and
+  availability was only ever signalled to clients holding a claim, so KWin
+  never learned the accelerometer had shown up (`0102-`).
+- **Auto-rotate defaults to `inTabletMode` and `tabletMode` is always false.**
+  `gpio-keys` advertises `SW_TABLET_MODE` but nothing drives it, so the policy
+  has to be set to Always in System Settings for rotation to actually fire.
+- **Two cosmetic libssc complaints**, neither fatal: `Mount matrix provided by
+  firmware is all 0` (the udev rule supplies `ACCEL_MOUNT_MATRIX` anyway) and
+  `Failed to unpack Xiaomi Davinci proximity measurement message`.

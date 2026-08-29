@@ -39,7 +39,7 @@ stdenvNoCC.mkDerivation {
     # patched, since /usr/bin/env is an FHS path either way.
     install -Dm755 xiaomi-mipps-auth "$out/libexec/xiaomi-mipps-auth"
     wrapProgram "$out/libexec/xiaomi-mipps-auth" \
-      --prefix PATH : "${python3}/bin"
+      --prefix PATH : "${python3}/bin:${lib.getBin glib}/bin"
     install -Dm644 xiaomi-mipps-auth.service \
       "$out/lib/systemd/system/xiaomi-mipps-auth.service"
     install -Dm644 90-xiaomi-mipps-auth.rules \

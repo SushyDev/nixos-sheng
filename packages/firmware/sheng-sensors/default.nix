@@ -24,8 +24,8 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p "$out"
-    cp -r --no-preserve=mode -- usr "$out/"
+    mkdir -p "$out/share"
+    cp -r --no-preserve=mode -- usr/share/qcom "$out/share/"
 
     install -Dm644 ${./81-sheng-ssc-sensors.rules} \
       "$out/lib/udev/rules.d/81-sheng-ssc-sensors.rules"

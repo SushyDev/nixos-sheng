@@ -57,6 +57,27 @@ in
       "xiaomi-charger-mode".wantedBy = [ "multi-user.target" ];
     };
 
+    # The aDSP writes temp.json back into this tree, so it has to be a mutable
+    # copy rather than the store path fastrpc could point at directly.
+    systemd.services."sheng-sensors-data" = {
+      description = "Seed the Qualcomm SSC sensor registry fastrpc serves to the aDSP";
+      before = [ "adsprpcd-sensorspd.service" ];
+      requiredBy = [ "adsprpcd-sensorspd.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        src=${sp.sheng-sensors}/share/qcom
+        if [ "$(cat /var/lib/qcom/.nix-source 2>/dev/null)" != "$src" ]; then
+          rm -rf /var/lib/qcom
+          mkdir -p /var/lib/qcom
+          cp -r --no-preserve=mode,ownership "$src"/. /var/lib/qcom/
+          echo "$src" > /var/lib/qcom/.nix-source
+        fi
+      '';
+    };
+
     systemd.user.services."xiaomi-sheng-keyboard-helper-micmute" = {
       description = "Xiaomi keyboard mic-mute LED sync";
       after = [ "pipewire-pulse.service" ];

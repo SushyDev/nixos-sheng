@@ -89,7 +89,11 @@ stdenv.mkDerivation {
     hash = "sha256-ZVaV4Aj4alr5eP3uz6SunpeRsMOo8YcZMqCcB0DUYGY=";
   };
 
-  patches = map (p: pmaportsPatch (builtins.elemAt p 0) (builtins.elemAt p 1)) patches_;
+  patches = map (p: pmaportsPatch (builtins.elemAt p 0) (builtins.elemAt p 1)) patches_ ++ [
+    ./0100-allocate-client-tables-before-find-sensors.patch
+    ./0101-ssc-do-not-tear-down-a-sensor-that-was-never-opened.patch
+    ./0102-broadcast-sensor-availability-changes.patch
+  ];
 
   # meson.build takes polkit's policydir from pkg-config with no override, so
   # it lands outside $out.

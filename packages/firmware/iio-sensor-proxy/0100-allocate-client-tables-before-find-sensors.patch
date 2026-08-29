@@ -1,0 +1,51 @@
+From: sheng-development
+Subject: [PATCH] Allocate the client tables before find_sensors() can bail
+
+pmaports' "WIP: Do not exit based on sensor events" drops the
+g_main_loop_quit() from the bail path of name_acquired_handler() so the
+daemon survives having no sensors and waits for hotplug. But bail is taken
+before the loop that allocates data->clients[], so the daemon then serves
+D-Bus with every client hash table still NULL:
+
+  g_hash_table_insert_internal: assertion 'hash_table != NULL' failed
+  ERROR:../src/iio-sensor-proxy.c:452:client_vanished_cb: assertion failed: (ht)
+
+client_vanished_cb aborts on the first watched name that disappears, which
+on sheng is every boot. The same bail also skipped the "uevent" signal
+connection, so the hotplug the WIP patch exists to wait for never arrived
+either.
+
+Allocate the tables and connect the handler before find_sensors() runs.
+---
+ src/iio-sensor-proxy.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -750,18 +750,21 @@
+ 	guint i;
+
+ 	data->client = g_udev_client_new (subsystems);
+-	if (!find_sensors (data->client, data))
+-		goto bail;
++
++	for (i = 0; i < NUM_SENSOR_TYPES; i++) {
++		data->clients[i] = create_clients_hash_table ();
++		data->sensor_startup_dbus_invocations_delayed[i] = g_ptr_array_new ();
++	}
+
+ 	g_signal_connect (G_OBJECT (data->client), "uevent",
+ 			  G_CALLBACK (sensor_changes), data);
+
++	if (!find_sensors (data->client, data))
++		goto bail;
++
+ 	for (i = 0; i < NUM_SENSOR_TYPES; i++) {
+ 		SensorDevice *sensor_device;
+
+-		data->clients[i] = create_clients_hash_table ();
+-		data->sensor_startup_dbus_invocations_delayed[i] = g_ptr_array_new ();
+-
+ 		if (!driver_type_exists (data, i))
+ 			continue;
+
