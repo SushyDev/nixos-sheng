@@ -1,5 +1,5 @@
-# Print the sheng's IP. Tries the cached address, then sweeps the /24.
-# The device takes a new DHCP lease every boot, so the cache goes stale.
+# Print a host that reaches the sheng. Tries mDNS, then the cached address,
+# then sweeps the /24 for images too old to publish a name or hold an address.
 
 # Dev files (key, ip cache) live at the project root, not necessarily $PWD.
 sheng_root() {
@@ -29,6 +29,14 @@ ssh_opts=(
 is_sheng() {
   local -r host="$1"
   ssh "${ssh_opts[@]}" "root@$host" 'test -e /dev/disk/by-partlabel/boot_a' 2>/dev/null
+}
+
+# Only the device answers to its own published name, so reaching sshd on it is
+# proof enough of identity. That skips is_sheng, and with it the dependency on
+# a key that a userdata reflash wipes.
+try_mdns() {
+  nc -z -G 1 -w 1 sheng.local 22 >/dev/null 2>&1 || return 1
+  echo sheng.local
 }
 
 try_cache() {
@@ -63,5 +71,6 @@ sweep() {
   return 1
 }
 
+try_mdns && exit 0
 try_cache && exit 0
 sweep "$(ipconfig getifaddr en0 2>/dev/null || echo 192.168.2.1)"

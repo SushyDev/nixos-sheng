@@ -59,6 +59,19 @@
   networking.networkmanager.enable = true;
   networking.hostName = lib.mkDefault "sheng";
 
+  # Publishes sheng.local, so the address stays a detail even when DHCP moves
+  # it. nssmdns6 stays off: the responder registers only IPv4 addresses, and
+  # the missing AAAA costs a resolver timeout on every lookup.
+  services.avahi = {
+    enable = true;
+    nssmdns4 = true;
+    publish = {
+      enable = true;
+      addresses = true;
+      workstation = true;
+    };
+  };
+
   # This kernel lacks the netfilter match modules the default rules need.
   networking.firewall.enable = false;
 
