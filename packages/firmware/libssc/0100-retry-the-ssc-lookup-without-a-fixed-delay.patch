@@ -1,0 +1,81 @@
+From: sheng-development
+Subject: [PATCH] Retry the SSC lookup without paying a fixed delay
+
+The QRTR node for the SSC service is not up the instant sensorspd starts, so
+debian-sheng's wait_for_qmi_service.patch wrapped the lookup in a retry loop.
+That loop never terminates early:
+
+	for (int attempt = 0; attempt < 5; attempt++) {
+		sleep(1);
+		for (GList *l = qrtr_bus_peek_nodes (priv->bus); l != NULL; l = l->next) {
+			node = l->data;
+
+			if (node && qrtr_node_lookup_port (node, QMI_SERVICE_SSC) >= 0) {
+				found = TRUE;
+				break;
+			}
+		}
+	}
+
+The break leaves the inner GList walk, not the attempt loop, and sleep(1) runs
+before the lookup instead of after a failed one. Creating an SSC client costs a
+flat 5 s whether the service is already registered or not.
+
+iio-sensor-proxy creates one client per sensor type and waits for each in turn,
+so the accelerometer is third of four to arrive and auto-rotate only works
+~20 s after the service starts. The lookup it is waiting on takes 8 ms:
+
+	03:38:50.232226  Found SSC proximity at /sys/devices/virtual/misc/fastrpc-adsp
+	03:38:50.232492  [qrtr] initial lookup finished
+	03:38:55.236608  QRTR node discovered for SSC service
+	03:38:55.242570  Found SSC light at /sys/devices/virtual/misc/fastrpc-adsp
+
+Check before sleeping and stop at the first hit. Modelled on-device by stubbing
+sleep() out with LD_PRELOAD, all four sensors are found within 16 ms of each
+other and the accelerometer reaches the bus in 0.24 s instead of 20 s.
+
+Raise the budget to 20 attempts while here. It is only spent when the service
+really is absent, and it now covers the cold-boot window that the ExecStartPre
+sleep in iio-sensor-proxy's 10-sheng-sensors.conf used to hide.
+--- a/src/libssc-client.c
++++ b/src/libssc-client.c
+@@ -17,6 +17,9 @@
+  */
+
+ #include "libssc-client-private.h"
++#include <unistd.h>
++
++#define SSC_LOOKUP_ATTEMPTS 20
+
+ enum {
+ 	SIGNAL_REPORT,
+@@ -361,15 +364,22 @@
+ 		return;
+ 	}
+
+-	/* Find QRTR node for SSC service */
+-	for (GList *l = qrtr_bus_peek_nodes (priv->bus); l != NULL; l = l->next) {
+-		node = l->data;
+-
+-		if (node && qrtr_node_lookup_port (node, QMI_SERVICE_SSC) >= 0) {
+-			found = TRUE;
+-			break;
++	/* sensorspd takes a moment to appear on QRTR after it starts. Stop at the
++	 * first hit: iio-sensor-proxy pays this wait once per sensor type.
++	 */
++	for (guint attempt = 0; !found && attempt < SSC_LOOKUP_ATTEMPTS; attempt++) {
++		if (attempt > 0)
++			sleep (1);
++
++		for (GList *l = qrtr_bus_peek_nodes (priv->bus); l != NULL; l = l->next) {
++			node = l->data;
++
++			if (node && qrtr_node_lookup_port (node, QMI_SERVICE_SSC) >= 0) {
++				found = TRUE;
++				break;
++			}
+ 		}
+ 	}
+
+ 	if (!found) {
+ 		g_debug ("Service SSC not found");
