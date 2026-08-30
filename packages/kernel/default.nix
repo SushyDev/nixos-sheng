@@ -20,12 +20,14 @@
   elfutils,
   openssl,
   ncurses,
-  # NixOS's boot.kernelPackages always re-overrides the kernel with these three;
-  # they are linuxManualConfig's arguments, not ours, so pass them straight on.
+  # NixOS's boot.kernelPackages re-overrides every kernel with features,
+  # randstructSeed and kernelPatches, all of which belong to linuxManualConfig.
+  # kernelPatches is read out of args rather than declared, or callPackage fills
+  # it from pkgs.kernelPatches -- an attrset, where a list is wanted.
   features ? { },
-  kernelPatches ? [ ],
   randstructSeed ? "",
-}:
+  ...
+}@args:
 
 let
   version = "7.2.2-sheng";
@@ -103,9 +105,10 @@ linuxManualConfig {
     src
     configfile
     features
-    kernelPatches
     randstructSeed
     ;
+
+  kernelPatches = args.kernelPatches or [ ];
 
   # sm8550.config sets CONFIG_LOCALVERSION="-sm8550", so kernelrelease is
   # 7.2.2-sm8550, not 7.2.2-sheng.
