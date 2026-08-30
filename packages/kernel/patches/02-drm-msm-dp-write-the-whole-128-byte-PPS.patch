@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Sun, 30 Aug 2026 23:08:01 +0200
+Subject: [PATCH] drm/msm/dp: write the whole 128-byte PPS
+
+msm_dp_panel_dsc_hw_config() wrote 22 words to the PPS store, described
+as the 88-byte DSC 1.1 payload.  DSC 1.1 and 1.2 both define a 128-byte
+picture parameter set, and the store is 32 words wide.
+
+Words 22-31 kept whatever they held before.  Read back on hardware at
+3440x1440@120 they were not zero:
+
+  0x200 : 000000c0 00000001 00000010 00000011
+
+so PPS byte 88, native_422_420, reached the sink as 0xc0 rather than 0.
+---
+ drivers/gpu/drm/msm/dp/dp_panel.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_panel.c b/drivers/gpu/drm/msm/dp/dp_panel.c
+index 1b798ba..bade31a 100644
+--- a/drivers/gpu/drm/msm/dp/dp_panel.c
++++ b/drivers/gpu/drm/msm/dp/dp_panel.c
+@@ -783,7 +783,7 @@ void msm_dp_panel_dsc_hw_config(struct msm_dp_panel *msm_dp_panel,
+ 	struct drm_dsc_picture_parameter_set pps;
+ 	const u8 *bytes;
+ 	u32 val, dto_count, bytes_per_line, parity_word;
+-	u8 parity[24] = { 0 };
++	u8 parity[32] = { 0 };
+ 	int i;
+ 
+ 	if (!msm_dp_panel)
+@@ -806,8 +806,7 @@ void msm_dp_panel_dsc_hw_config(struct msm_dp_panel *msm_dp_panel,
+ 	bytes = (const u8 *)&pps;
+ 	msm_dp_write_link(panel, DP_PPS_HB_0_3, 0x007F1000);
+ 	msm_dp_write_link(panel, DP_PPS_PB_0_3, 0x00A22300);
+-	/* SM8550's DP PPS store carries the 88-byte DSC 1.1 payload. */
+-	for (i = 0; i < 22; i++) {
++	for (i = 0; i < 32; i++) {
+ 		val = bytes[i * 4] | bytes[i * 4 + 1] << 8 |
+ 			bytes[i * 4 + 2] << 16 | bytes[i * 4 + 3] << 24;
+ 		msm_dp_write_link(panel, DP_PPS_PPS_0_3 + i * 4, val);

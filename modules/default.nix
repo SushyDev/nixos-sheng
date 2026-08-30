@@ -2,6 +2,7 @@
   imports = [
     ./audio.nix
     ./boot-slot.nix
+    ./build-cache.nix
     ./camera.nix
     ./extlinux.nix
     ./firmware.nix

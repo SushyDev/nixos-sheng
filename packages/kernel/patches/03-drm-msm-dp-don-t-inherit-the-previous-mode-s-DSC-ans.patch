@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Sun, 30 Aug 2026 23:08:25 +0200
+Subject: [PATCH] drm/msm/dp: don't inherit the previous mode's DSC answer
+
+msm_dp_panel_stage_dsc() clears dsc_staged_valid and returns early when
+DSC is not needed, and msm_dp_panel_get_dsc_config() then falls back to
+the committed msm_dp_mode.dsc_en, which still describes the mode being
+left.
+
+Going 120 -> 60 Hz the DPU asks during atomic_check, is told yes,
+reserves and programs two DSC blocks, and mode_set afterwards sets
+dsc_en = false.  60 Hz needs no compression at all, so the result is a
+corrupt picture on a mode that should be trivially safe.
+
+Record that a decision was taken, so no-DSC-for-this-mode is
+distinguishable from nothing-staged-yet.
+---
+ drivers/gpu/drm/msm/dp/dp_panel.c | 4 ++++
+ drivers/gpu/drm/msm/dp/dp_panel.h | 1 +
+ 2 files changed, 5 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_panel.c b/drivers/gpu/drm/msm/dp/dp_panel.c
+index bade31a..455b9b4 100644
+--- a/drivers/gpu/drm/msm/dp/dp_panel.c
++++ b/drivers/gpu/drm/msm/dp/dp_panel.c
+@@ -489,6 +489,7 @@ void msm_dp_panel_stage_dsc(struct msm_dp_panel *msm_dp_panel,
+ 	u32 src_bpp;
+ 
+ 	msm_dp_panel->dsc_staged_valid = false;
++	msm_dp_panel->dsc_staged_done = true;
+ 
+ 	if (!msm_dp_panel_dsc_possible(msm_dp_panel, mode->clock, mode_edid_bpp))
+ 		return;
+@@ -509,6 +510,7 @@ void msm_dp_panel_stage_dsc(struct msm_dp_panel *msm_dp_panel,
+ void msm_dp_panel_commit_dsc(struct msm_dp_panel *msm_dp_panel)
+ {
+ 	msm_dp_panel->msm_dp_mode.dsc_en = msm_dp_panel->dsc_staged_valid;
++	msm_dp_panel->dsc_staged_done = false;
+ 	if (!msm_dp_panel->dsc_staged_valid)
+ 		return;
+ 
+@@ -523,6 +525,8 @@ struct drm_dsc_config *msm_dp_panel_get_dsc_config(struct msm_dp_panel *panel)
+ 		return NULL;
+ 	if (panel->dsc_staged_valid)
+ 		return &panel->dsc_staged;
++	if (panel->dsc_staged_done)
++		return NULL;
+ 	return panel->msm_dp_mode.dsc_en ? &panel->dsc : NULL;
+ }
+ 
+diff --git a/drivers/gpu/drm/msm/dp/dp_panel.h b/drivers/gpu/drm/msm/dp/dp_panel.h
+index 8920139..8fcb918 100644
+--- a/drivers/gpu/drm/msm/dp/dp_panel.h
++++ b/drivers/gpu/drm/msm/dp/dp_panel.h
+@@ -62,6 +62,7 @@ struct msm_dp_panel {
+ 	struct drm_dsc_config dsc_staged;
+ 	u32 dsc_staged_bpp;
+ 	bool dsc_staged_valid;
++	bool dsc_staged_done;
+ };
+ 
+ int msm_dp_panel_init_panel_info(struct msm_dp_panel *msm_dp_panel);
