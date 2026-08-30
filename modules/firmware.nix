@@ -1,5 +1,4 @@
-# The single toggle for every sheng vendor userspace daemon. hardware.nix
-# stays unconditional; only vendor-specific daemons live behind this.
+# The single toggle for every sheng vendor userspace daemon.
 {
   config,
   lib,
@@ -43,8 +42,8 @@ in
     # sheng-fingerprint's drop-in expects the distro to provide fprintd.
     services.fprintd.enable = true;
 
-    # The driver's own default is an FHS path, and a missing trusted app
-    # surfaces as a misleading "Print was not found".
+    # The driver defaults to an FHS path; a missing TA surfaces as a
+    # misleading "Print was not found".
     systemd.services.fprintd.environment.FPC1553_TA_PATH = "/run/current-system/firmware/fpcsheng.elf";
 
     systemd.services = {
@@ -57,8 +56,8 @@ in
       "xiaomi-charger-mode".wantedBy = [ "multi-user.target" ];
     };
 
-    # The aDSP writes temp.json back into this tree, so it has to be a mutable
-    # copy rather than the store path fastrpc could point at directly.
+    # The aDSP writes temp.json back into this tree, so it must be a mutable
+    # copy.
     systemd.services."sheng-sensors-data" = {
       description = "Seed the Qualcomm SSC sensor registry fastrpc serves to the aDSP";
       before = [ "adsprpcd-sensorspd.service" ];
@@ -119,7 +118,7 @@ in
     environment.pathsToLink = [ "/share/alsa" ];
     # A union, not the sheng package alone: ALSA_CONFIG_UCM2 replaces the
     # search path rather than extending it, and hiding ucm2/lib makes UCM fail
-    # silently -- every PCM present, zero sinks and sources.
+    # silently.
     environment.sessionVariables.ALSA_CONFIG_UCM2 = "${
       pkgs.symlinkJoin {
         name = "alsa-ucm2-sheng";

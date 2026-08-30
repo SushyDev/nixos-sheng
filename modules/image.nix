@@ -1,9 +1,6 @@
 # Builds config.system.build.shengImage: a raw ext4 filesystem plus an Android
-# sparse copy, to `fastboot flash userdata`. Calls make-ext4-fs.nix directly
-# rather than building on sd-image-aarch64.nix, which would partition a whole
-# card with a GPT and an ESP; this device has one existing partition.
+# sparse copy, to `fastboot flash userdata`.
 {
-  self,
   config,
   lib,
   pkgs,
@@ -31,21 +28,33 @@ let
       ${config.sheng.boot.installer}/bin/sheng-install-boot \
         -d ./files/boot ${config.system.build.toplevel}
 
-      # A mutable copy, so the device can rebuild without a host.
-      mkdir -p ./files/etc/nixos
-      cp -r --no-preserve=mode,ownership ${self}/. ./files/etc/nixos/
+      ${lib.optionalString (cfg.etcNixosSource != null) ''
+        mkdir -p ./files/etc/nixos
+        cp -r --no-preserve=mode,ownership ${cfg.etcNixosSource}/. ./files/etc/nixos/
+      ''}
     '';
   };
 in
 {
   options.sheng.rootfs = {
+    etcNixosSource = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      example = lib.literalExpression "inputs.self";
+      description = ''
+        Flake source to copy into /etc/nixos inside the image, so the device
+        can {command}`nixos-rebuild` itself with no host attached. Null ships
+        no /etc/nixos; point it at your own flake.
+      '';
+    };
+
     partlabel = lib.mkOption {
       type = lib.types.str;
       default = "userdata";
       description = ''
         PARTLABEL of the existing Android partition this image gets flashed
-        onto. The default replaces Android entirely; set it to "linux" for the
-        reference project's dual-boot convention.
+        onto. The default replaces Android entirely; "linux" is the reference
+        project's dual-boot convention.
       '';
     };
 
@@ -56,11 +65,9 @@ in
         Fixed size to grow the image to, or null to leave it auto-sized.
 
         Leave it null. A fixed size corrupts the filesystem: resize2fs writes
-        the block groups it adds with bitmap checksums the kernel rejects,
-        while build-time e2fsck reports the image clean, so nothing catches it
-        until the device boots and refuses every later resize -- including the
-        growfs that would have claimed the rest of the partition. It buys
-        nothing either, since img2simg drops the empty blocks anyway.
+        the added block groups with bitmap checksums the kernel rejects, while
+        build-time e2fsck reports the image clean -- so nothing catches it
+        until the device refuses every later resize, growfs included.
       '';
     };
 
@@ -69,8 +76,7 @@ in
       default = false;
       description = ''
         Also ship the raw ext4 image next to the Android sparse one, to
-        loopback-mount and look inside. Off by default because nothing
-        consumes it and it costs imageSize bytes per fetch.
+        loopback-mount and look inside.
       '';
     };
   };
@@ -108,8 +114,8 @@ in
             resize2fs "$img" ${cfg.imageSize}
           ''}
 
-          # e2fsck exits 1 on the pass that fixes something, so loop rather than
-          # swallow that with `|| true` and ship an image it never finished.
+          # e2fsck exits 1 on the pass that fixes something, so loop rather
+          # than swallow that and ship an image it never finished.
           echo "Final filesystem check..."
           clean=0
           for i in 1 2 3 4; do
