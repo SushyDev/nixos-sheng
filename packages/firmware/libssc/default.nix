@@ -26,12 +26,16 @@ stdenv.mkDerivation {
     hash = "sha256-UPLKuePBKgQsA0qgY5xcvoj6jpxHhxJ9pMWJdD23LSg=";
   };
 
-  # Retries the SSC service lookup, because sensorspd takes a moment to
-  # enumerate on QRTR after adsprpcd-sensorspd.service starts. Replaces
-  # debian-sheng's wait_for_qmi_service.patch, whose retry loop had no early
-  # exit and so cost a flat 5s per SSC client -- 20s across the four sensors
-  # iio-sensor-proxy opens.
-  patches = [ ./0100-retry-the-ssc-lookup-without-a-fixed-delay.patch ];
+  # Retries the SSC service lookup, because sensorspd registers a few seconds
+  # after the aDSP boots. Replaces debian-sheng's wait_for_qmi_service.patch,
+  # which retried with sleep() inside the main-loop callback and so blocked the
+  # very bus it was waiting on.
+  # 0101 covers the second race: the aDSP registers its sensors one at a time,
+  # so a lookup that now runs early finds accel but not yet ambient light.
+  patches = [
+    ./0100-retry-the-ssc-lookup-without-blocking-the-main-loop.patch
+    ./0101-retry-sensor-discovery-while-the-adsp-registers.patch
+  ];
 
   nativeBuildInputs = [
     meson

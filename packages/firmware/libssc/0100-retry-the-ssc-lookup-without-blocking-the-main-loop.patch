@@ -1,0 +1,122 @@
+From: sheng-development
+Subject: [PATCH] Retry the SSC lookup without blocking the main loop
+
+sensorspd registers QMI service 400 a few seconds after the aDSP boots, so the
+lookup in bus_new_ready() routinely runs before the service exists.
+debian-sheng's wait_for_qmi_service.patch tried to cover that with a retry
+loop, which cannot work:
+
+	for (int attempt = 0; attempt < 5; attempt++) {
+		sleep(1);
+		for (GList *l = qrtr_bus_peek_nodes (priv->bus); l != NULL; l = l->next) {
+			node = l->data;
+
+			if (node && qrtr_node_lookup_port (node, QMI_SERVICE_SSC) >= 0) {
+				found = TRUE;
+				break;
+			}
+		}
+	}
+
+The break leaves the inner GList walk rather than the attempt loop and sleep(1)
+runs before the lookup, so every SSC client costs a flat 5 s even when the
+service is already up. Worse, QrtrBus learns about new nodes from socket events
+dispatched on the main loop, and bus_new_ready() is itself a main-loop callback,
+so sleeping in it stops the bus ever seeing the service it is waiting for. The
+loop re-reads a node list that is frozen for as long as it keeps sleeping.
+
+That makes the wait self-defeating, and the budget sets the failure time
+exactly. Measured on sheng by rebooting the aDSP with
+
+	echo stop  > /sys/class/remoteproc/remoteproc0/state
+	echo start > /sys/class/remoteproc/remoteproc0/state
+
+a 20-attempt budget gives up at 19.1 s and a 60-attempt budget at 59.0 s, each
+time with the next client finding the service immediately afterwards on its own
+fresh bus:
+
+	14:34:23.011  Starting IIO Sensor Proxy service...
+	14:34:42.113  Service SSC not found
+	14:34:42.120  QRTR node discovered for SSC service
+
+Polling ssccli instead -- a new process, so a new bus, each time -- puts the
+real registration at 6.6 s after the aDSP starts. Nothing needed to wait 19 s.
+
+Retry asynchronously against a fresh bus instead, so the main loop keeps
+running and each attempt re-enumerates. iio-sensor-proxy opens one client per
+sensor type and waits for each in turn, so this also keeps a cold start from
+costing that wait four times over.
+--- a/src/libssc-client.c
++++ b/src/libssc-client.c
+@@ -17,6 +17,10 @@
+  */
+
+ #include "libssc-client-private.h"
++
++#define SSC_LOOKUP_TIMEOUT_MS  1000
++#define SSC_LOOKUP_ATTEMPTS    30
++#define SSC_LOOKUP_ATTEMPT_KEY "ssc-lookup-attempt"
+
+ enum {
+ 	SIGNAL_REPORT,
+@@ -340,4 +344,24 @@
+
++static void bus_new_ready (GObject *source, GAsyncResult *res, gpointer user_data);
++
++/* A bus only learns about nodes that turn up while it is listening, so one
++ * created before sensorspd registered will never see it. Start a fresh one. */
++static gboolean
++lookup_retry (gpointer user_data)
++{
++	GTask *task = G_TASK (user_data);
++	SSCClient *client = g_task_get_task_data (task);
++	SSCClientPrivate *priv = ssc_client_get_instance_private (client);
++
++	g_clear_object (&priv->bus);
++	qrtr_bus_new (SSC_LOOKUP_TIMEOUT_MS,
++		      g_task_get_cancellable (task),
++		      bus_new_ready,
++		      task);
++
++	return G_SOURCE_REMOVE;
++}
++
+ static void
+ bus_new_ready (GObject *source, GAsyncResult *res, gpointer user_data)
+ {
+@@ -371,14 +395,26 @@
+ 		}
+ 	}
+
+ 	if (!found) {
++		guint attempt = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (task),
++								     SSC_LOOKUP_ATTEMPT_KEY));
++
++		/* Expected on a cold boot: the aDSP is still bringing the sensor
++		 * PD up. Come back on the next tick rather than failing. */
++		if (attempt < SSC_LOOKUP_ATTEMPTS) {
++			g_object_set_data (G_OBJECT (task), SSC_LOOKUP_ATTEMPT_KEY,
++					   GUINT_TO_POINTER (attempt + 1));
++			g_timeout_add_seconds (1, lookup_retry, task);
++			return;
++		}
++
+ 		g_debug ("Service SSC not found");
+ 		g_set_error (&error, ssc_client_error_quark(), SSC_CLIENT_ERROR_LOOKUP,
+ 			     "SSC QMI Service not found");
+ 		g_task_return_error (task, error);
+ 		g_clear_object (&task);
+ 		return;
+ 	}
+
+ 	g_debug("QRTR node discovered for SSC service");
+
+@@ -470,7 +506,7 @@
+ 		g_task_set_task_data (task, self, NULL);
+
+ 		/* Open right node on QRTR bus */
+-		qrtr_bus_new (1000, /* ms */
++		qrtr_bus_new (SSC_LOOKUP_TIMEOUT_MS,
+ 			      NULL,
+ 			      bus_new_ready,
+ 			      task);
