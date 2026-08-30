@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Sun, 30 Aug 2026 23:08:01 +0200
+Subject: [PATCH] drm/msm/dp: don't re-decide DSC from the reduced bpp
+
+msm_dp_bridge_mode_set() stages and commits the DSC decision using the
+EDID bpp, and msm_dp_panel_commit_dsc() then writes the DSC source bpp
+back into msm_dp_mode.bpp.  msm_dp_panel_init_panel_info() re-ran the
+same decision against that already-reduced value.
+
+At 3440x1440@120 the two passes disagree.  Against the EDID's 10 bpc,
+698750 * 30 = 20.96 Gbps exceeds the 16.87 Gbps budget so DSC is
+committed.  Against the reduced 24 bpp, 698750 * 24 = 16.77 Gbps fits,
+so the second pass cleared dsc_en after the DPU had already latched the
+compressed topology.  The DPU then compresses into a transmitter that is
+not decompressing.
+---
+ drivers/gpu/drm/msm/dp/dp_panel.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_panel.c b/drivers/gpu/drm/msm/dp/dp_panel.c
+index bc46e79..1b798ba 100644
+--- a/drivers/gpu/drm/msm/dp/dp_panel.c
++++ b/drivers/gpu/drm/msm/dp/dp_panel.c
+@@ -1232,9 +1232,11 @@ int msm_dp_panel_init_panel_info(struct msm_dp_panel *msm_dp_panel)
+ 				drm_mode->clock);
+ 	drm_dbg_dp(panel->drm_dev, "bpp = %d\n", msm_dp_panel->msm_dp_mode.bpp);
+ 
+-	msm_dp_panel_stage_dsc(msm_dp_panel, drm_mode,
+-			msm_dp_panel->msm_dp_mode.bpp);
+-	msm_dp_panel_commit_dsc(msm_dp_panel);
++	if (!msm_dp_panel->msm_dp_mode.dsc_en) {
++		msm_dp_panel_stage_dsc(msm_dp_panel, drm_mode,
++				msm_dp_panel->msm_dp_mode.bpp);
++		msm_dp_panel_commit_dsc(msm_dp_panel);
++	}
+ 	if (!msm_dp_panel->msm_dp_mode.dsc_en)
+ 		msm_dp_panel->msm_dp_mode.bpp = msm_dp_panel_get_mode_bpp(msm_dp_panel,
+ 							msm_dp_panel->msm_dp_mode.bpp,

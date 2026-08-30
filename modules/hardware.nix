@@ -30,6 +30,11 @@
     "rw"
     "rootwait"
     "log_buf_len=8M"
+
+    # The monitor hub fails its first control transfer with EIO. Neither of
+    # these fixes it, but autosuspend is pointless on a bus-powered hub.
+    "usbcore.quirks=05e3:0610:k"
+    "usbcore.autosuspend=-1"
   ];
 
   fileSystems."/" = {

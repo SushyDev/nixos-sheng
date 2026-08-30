@@ -108,7 +108,34 @@ linuxManualConfig {
     randstructSeed
     ;
 
-  kernelPatches = args.kernelPatches or [ ];
+  # DP fixes for the external monitor. See packages/kernel/patches.
+  kernelPatches = [
+    {
+      name = "dp-decide-dsc-once";
+      patch = ./patches/01-drm-msm-dp-don-t-re-decide-DSC-from-the-reduced-bpp.patch;
+    }
+    {
+      name = "dp-write-full-pps";
+      patch = ./patches/02-drm-msm-dp-write-the-whole-128-byte-PPS.patch;
+    }
+    {
+      name = "dp-drop-stale-dsc-answer";
+      patch = ./patches/03-drm-msm-dp-don-t-inherit-the-previous-mode-s-DSC-ans.patch;
+    }
+    {
+      name = "dp-widebus-link-rate";
+      patch = ./patches/04-drm-msm-dp-don-t-apply-the-wide-bus-divisor-to-the-l.patch;
+    }
+    {
+      name = "dp-trained-lane-count";
+      patch = ./patches/05-drm-msm-dp-validate-modes-against-the-trained-lane-c.patch;
+    }
+    {
+      name = "dp-prefer-lower-bpc";
+      patch = ./patches/06-drm-msm-dp-prefer-a-lower-bit-depth-over-compression.patch;
+    }
+  ]
+  ++ (args.kernelPatches or [ ]);
 
   # sm8550.config sets CONFIG_LOCALVERSION="-sm8550", so kernelrelease is
   # 7.2.2-sm8550, not 7.2.2-sheng.

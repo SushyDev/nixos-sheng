@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Sun, 30 Aug 2026 23:08:46 +0200
+Subject: [PATCH] drm/msm/dp: don't apply the wide bus divisor to the link rate
+ check
+
+msm_dp_bridge_mode_valid() halves the pixel clock when wide bus is
+available and then uses that halved value both for the
+DP_MAX_PIXEL_CLK_KHZ limit and for the link bandwidth comparison.
+
+Wide bus carries two pixels per pixel clock between the DPU and the DP
+controller.  That halves the rate the controller has to be clocked at,
+which is what DP_MAX_PIXEL_CLK_KHZ bounds, but it does not change how
+much data the link has to carry.  Using the halved clock understates the
+requirement by a factor of two, so modes that cannot fit are reported
+MODE_OK and go black when selected.
+
+On a Samsung Odyssey G85SB, 2560x1440@175 needs 17.9 Gbps and was
+offered on a link providing 17.28 Gbps.
+
+YUV 4:2:0 genuinely halves the transferred data, so it keeps the divisor
+for the bandwidth calculation; only the wide bus term is dropped.
+---
+ drivers/gpu/drm/msm/dp/dp_display.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_display.c b/drivers/gpu/drm/msm/dp/dp_display.c
+index dc31572..46a5ce1 100644
+--- a/drivers/gpu/drm/msm/dp/dp_display.c
++++ b/drivers/gpu/drm/msm/dp/dp_display.c
+@@ -700,6 +700,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	struct msm_dp *dp;
+ 	int mode_pclk_khz = mode->clock;
+ 	int mode_pclk_orig = mode->clock;
++	int link_pclk_khz = mode->clock;
+ 
+ 	dp = to_dp_bridge(bridge)->msm_dp_display;
+ 
+@@ -716,6 +717,10 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	     msm_dp_wide_bus_available(dp))
+ 		mode_pclk_khz /= 2;
+ 
++	if (drm_mode_is_420_only(&dp->connector->display_info, mode) &&
++	    msm_dp_display->panel->vsc_sdp_supported)
++		link_pclk_khz /= 2;
++
+ 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
+ 		return MODE_CLOCK_HIGH;
+ 
+@@ -728,9 +733,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 		mode_bpp = 8;
+ 	else
+ 		mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,
+-					mode_bpp, mode_pclk_khz);
++					mode_bpp, link_pclk_khz);
+ 
+-	mode_rate_khz = mode_pclk_khz * mode_bpp;
++	mode_rate_khz = link_pclk_khz * mode_bpp;
+ 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
+ 
+ 	if (mode_rate_khz > supported_rate_khz)

@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Sun, 30 Aug 2026 23:09:04 +0200
+Subject: [PATCH] drm/msm/dp: prefer a lower bit depth over compression
+
+msm_dp_panel_dsc_possible() asks whether the mode fits at the bit depth
+the EDID advertises.  A monitor advertising 10 bpc makes 3440x1440@120
+look like 698750 * 30 = 20.96 Gbps against a 16.87 Gbps budget, so DSC
+is engaged, even though the same mode fits uncompressed at 8 bpc:
+698750 * 24 = 16.77 Gbps.
+
+msm_dp_panel_get_mode_bpp() already steps bpp down until a mode fits, it
+just never got the chance because the DSC test ran first.  Ask whether
+the mode fits at the minimum RGB depth instead, so compression is
+reserved for modes that cannot be sent uncompressed at all.
+---
+ drivers/gpu/drm/msm/dp/dp_panel.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_panel.c b/drivers/gpu/drm/msm/dp/dp_panel.c
+index 455b9b4..38ca802 100644
+--- a/drivers/gpu/drm/msm/dp/dp_panel.c
++++ b/drivers/gpu/drm/msm/dp/dp_panel.c
+@@ -285,7 +285,7 @@ bool msm_dp_panel_dsc_possible(struct msm_dp_panel *msm_dp_panel,
+ 
+ 	return source_bpp >= 24 &&
+ 		(u64)mode_pclk_khz * 8 <= link_rate &&
+-		(u64)mode_pclk_khz * source_bpp > link_rate;
++		(u64)mode_pclk_khz * 24u > link_rate;
+ }
+ 
+ static const struct {

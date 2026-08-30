@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Sun, 30 Aug 2026 23:09:04 +0200
+Subject: [PATCH] drm/msm/dp: validate modes against the trained lane count
+
+link_info.num_lanes is the smaller of the sink's advertised maximum and
+the data-lanes property in DT.  Both are static, so on a USB-C port it
+describes the wiring rather than the link: DisplayPort alt mode decides
+at attach time how many lanes are available, and a pin assignment that
+keeps USB 3 leaves only two of the four for DP.
+
+Sizing the link from that static value means a two lane link advertises
+modes needing four lanes' worth of bandwidth.  Link training later falls
+back to the lane count that is really there, but the mode has already
+been accepted, so the user gets a black screen from a mode the driver
+offered.
+
+On a Samsung Odyssey G85SB in its USB data mode, DP trains at two lanes
+and 3440x1440@120 (16.77 Gbps) was offered against 8.64 Gbps.
+---
+ drivers/gpu/drm/msm/dp/dp_display.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_display.c b/drivers/gpu/drm/msm/dp/dp_display.c
+index 46a5ce1..d11c502 100644
+--- a/drivers/gpu/drm/msm/dp/dp_display.c
++++ b/drivers/gpu/drm/msm/dp/dp_display.c
+@@ -697,6 +697,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	struct msm_dp_display_private *msm_dp_display;
+ 	struct msm_dp_link_info *link_info;
+ 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
++	u32 num_lanes;
+ 	struct msm_dp *dp;
+ 	int mode_pclk_khz = mode->clock;
+ 	int mode_pclk_orig = mode->clock;
+@@ -736,7 +737,11 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 					mode_bpp, link_pclk_khz);
+ 
+ 	mode_rate_khz = link_pclk_khz * mode_bpp;
+-	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
++	num_lanes = msm_dp_display->link->link_params.num_lanes;
++	if (!num_lanes)
++		num_lanes = link_info->num_lanes;
++
++	supported_rate_khz = num_lanes * link_info->rate * 8;
+ 
+ 	if (mode_rate_khz > supported_rate_khz)
+ 		return MODE_BAD;
