@@ -20,6 +20,11 @@
   elfutils,
   openssl,
   ncurses,
+  # NixOS's boot.kernelPackages always re-overrides the kernel with these three;
+  # they are linuxManualConfig's arguments, not ours, so pass them straight on.
+  features ? { },
+  kernelPatches ? [ ],
+  randstructSeed ? "",
 }:
 
 let
@@ -97,6 +102,9 @@ linuxManualConfig {
     version
     src
     configfile
+    features
+    kernelPatches
+    randstructSeed
     ;
 
   # sm8550.config sets CONFIG_LOCALVERSION="-sm8550", so kernelrelease is
