@@ -5,7 +5,6 @@
   lib,
   stdenv,
   fetchFromGitea,
-  fetchpatch,
   meson,
   ninja,
   pkg-config,
@@ -27,13 +26,11 @@ stdenv.mkDerivation {
     hash = "sha256-UPLKuePBKgQsA0qgY5xcvoj6jpxHhxJ9pMWJdD23LSg=";
   };
 
-  # Adds a 5x1s retry around the SSC service lookup: sensorspd takes a moment
-  # to enumerate on QRTR after adsprpcd-sensorspd.service starts.
+  # Both replace debian-sheng's wait_for_qmi_service.patch, which retried with
+  # sleep() inside the main-loop callback and so blocked the bus it waited on.
   patches = [
-    (fetchpatch {
-      url = "https://raw.githubusercontent.com/ianchb/debian-sheng/master/patches/wait_for_qmi_service.patch";
-      hash = "sha256-Ee3Jq8ITM5WQebHaYWZeVTuPYBFu3uMbDIoSQ3Zb6Cg=";
-    })
+    ./0100-retry-the-ssc-lookup-without-blocking-the-main-loop.patch
+    ./0101-retry-sensor-discovery-while-the-adsp-registers.patch
   ];
 
   nativeBuildInputs = [

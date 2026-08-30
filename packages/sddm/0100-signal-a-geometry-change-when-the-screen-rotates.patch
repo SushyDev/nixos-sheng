@@ -1,0 +1,24 @@
+From: sheng-development
+Subject: [PATCH] Signal a geometry change when the screen rotates
+
+ScreenModel re-reads the screen on every data() call but never tells anyone
+the geometry changed, and a rotation keeps the same QScreen. The greeter's
+window is resized by the compositor, so a theme that anchors to it follows
+along, but a binding on the model's geometry role does not: in Breeze that is
+the per-screen wallpaper, which keeps drawing at the size the screen had when
+the greeter started.
+
+--- a/src/greeter/ScreenModel.cpp
++++ b/src/greeter/ScreenModel.cpp
+@@ -32,6 +32,11 @@ namespace SDDM {
+ 
+     ScreenModel::ScreenModel(QScreen *screen, QObject *parent) : QAbstractListModel(parent), d(new ScreenModelPrivate()) {
+         d->screen = screen;
++
++        connect(screen, &QScreen::geometryChanged, this, [this] {
++            const QModelIndex row = index(0, 0);
++            emit dataChanged(row, row, { GeometryRole });
++        });
+     }
+ 
+     ScreenModel::~ScreenModel() {

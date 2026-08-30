@@ -1,0 +1,124 @@
+From: sheng-development
+Subject: [PATCH] Retry sensor discovery while the aDSP is still registering
+
+The SUID lookup treats an empty response as "this device has no such sensor"
+and completes the task with FALSE. That is only true once the sensor PD has
+finished coming up: the aDSP registers its sensors one at a time, so a lookup
+run early in boot sees some of them and not others.
+
+Once the SSC service lookup stops blocking the main loop, discovery happens
+about 1.5 s after the aDSP starts, and at that point only accel and rotv exist:
+
+	Discovering sensor UID for data type 'proximity'
+	No 'proximity' sensor available
+	Discovering sensor UID for data type 'ambient_light'
+	No 'ambient_light' sensor available
+	Discovering sensor UID for data type 'accel'
+	Discovered 'accel' sensor (7037810611998542250 6360260105974108950)
+
+Ambient light and proximity do register, just later -- discovering at 19.9 s
+finds light. So the sensors are lost purely to timing and nothing looks again.
+
+Retry on a timeout, reusing the report handler that is already connected, so
+the wait costs nothing once the sensor is there. Bounded separately from
+MAX_RETRIES because a data type the hardware genuinely lacks has to give up in
+reasonable time rather than spending 100 s on it.
+
+The pending retry has to be cancellable. Two SUID responses can arrive for one
+request, and the second frees the ReportReceivedContext that an armed timeout
+still points at, which segfaults in discover():
+
+	#0  g_task_get_cancellable (libgio-2.0.so.0)
+	#1  discover (libssc.so.2)
+	#2  discovery_retry (libssc.so.2)
+	#3  g_timeout_dispatch (libglib-2.0.so.0)
+
+Drop any armed retry as soon as a response for the data type arrives, which is
+the point past which the context may be freed.
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -22,6 +22,7 @@
+ #include "ssc-sensor-suid.pb-c.h"
+ #include "libssc-sensor.h"
+
+ #define MAX_RETRIES 100
++#define MAX_DISCOVERY_RETRIES 20
+
+ enum {
+@@ -60,7 +61,9 @@
+ 	guint report_id;
+ 	gboolean attr_populated;
+ 	gboolean service_available;
+ 	guint service_retries;
++	guint discovery_retries;
++	guint discovery_retry_id;
+ } SSCSensorPrivate;
+
+ static void async_initable_iface_init (GAsyncInitableIface *iface);
+@@ -269,5 +272,19 @@
+ /*****************************************************************************/
+
++/* The aDSP brings its sensors up one at a time, so a data type missing right
++ * after boot may still appear. */
++static gboolean
++discovery_retry (gpointer user_data)
++{
++	ReportReceivedContext *ctx = user_data;
++	SSCSensorPrivate *priv = ssc_sensor_get_instance_private (ctx->sensor);
++
++	priv->discovery_retry_id = 0;
++	discover (ctx->sensor, ctx->task);
++
++	return G_SOURCE_REMOVE;
++}
++
+ static void
+ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_low, GArray *buf, gpointer user_data)
+ {
+@@ -331,25 +348,37 @@
+ 		/* Ignore if data type does not match due to concurrency */
+ 		if (g_strcmp0 (suid_msg->data_type, priv->data_type) != 0) {
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
+ 			return;
+ 		}
++
++		/* A response can free ctx, which an armed retry still points at. */
++		g_clear_handle_id (&priv->discovery_retry_id, g_source_remove);
+
+ 		/* Only default sensor for data type is reported */
+ 		if (suid_msg != NULL && suid_msg->n_uid > 0) {
+ 			priv->uid_high = suid_msg->uid[0]->high;
+ 			priv->uid_low = suid_msg->uid[0]->low;
+
+ 			g_debug ("Discovered '%s' sensor (%" G_GUINT64_FORMAT " %" G_GUINT64_FORMAT ")", priv->data_type, priv->uid_high, priv->uid_low);
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
+
+ 			/* Sensor discovered, populate attributes */
+ 			attribute (ctx->sensor, ctx->task);
+
+ 			return;
+ 		/* No sensor available for specified data type, complete task */
+ 		} else {
+-			g_debug ("No '%s' sensor available", priv->data_type);
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
++
++			if (priv->discovery_retries < MAX_DISCOVERY_RETRIES) {
++				priv->discovery_retries++;
++				g_debug ("No '%s' sensor yet, retrying... (%d/%d)",
++					 priv->data_type, priv->discovery_retries, MAX_DISCOVERY_RETRIES);
++				priv->discovery_retry_id = g_timeout_add_seconds (1, discovery_retry, ctx);
++				return;
++			}
++
++			g_debug ("No '%s' sensor available", priv->data_type);
+
+ 			g_signal_handler_disconnect (self, priv->report_id);
+ 			priv->report_id = 0;
+@@ -683,5 +713,7 @@
+ 	/* Wait for sensor service before discovering sensor */
+ 	priv->service_available = FALSE;
+ 	priv->service_retries = 0;
++	priv->discovery_retries = 0;
++	priv->discovery_retry_id = 0;
+ 	wait_for_sensor_service (self, task);
+ }
