@@ -201,30 +201,19 @@ in
     configurationLimit = lib.mkOption {
       type = lib.types.int;
       default = 10;
-      description = ''
-        How many generations U-Boot's menu offers, not counting the extra line
-        each specialisation adds. Bounded by bootmenu.c's MAX_COUNT of 99, by
-        space in /boot, and by legibility on a panel navigated with two volume
-        buttons.
-      '';
+      description = "How many generations U-Boot's menu offers. bootmenu.c caps it at 99.";
     };
 
     dtbName = lib.mkOption {
       type = lib.types.str;
       default = "qcom/sm8550-xiaomi-sheng.dtb";
-      description = ''
-        Path of the device tree within the generation's `dtbs` directory,
-        written into each entry's FDT line.
-      '';
+      description = "Device tree within the generation's `dtbs` directory, written into each FDT line.";
     };
 
     installer = lib.mkOption {
       type = lib.types.package;
       readOnly = true;
-      description = ''
-        The installer, exposed so the image builder can run it at build time
-        with the same code that runs at activation.
-      '';
+      description = "The installer, exposed so the image builder can run it at build time.";
     };
   };
 

@@ -1,7 +1,6 @@
 # Make a flashed image able to rebuild itself. Nothing reads the
-# /nix-path-registration make-ext4-fs writes, so until it is loaded every
-# store path is invalid to Nix: builds refetch everything and GC would delete
-# the running system.
+# /nix-path-registration make-ext4-fs writes, so until it is loaded every store
+# path is invalid to Nix.
 {
   config,
   lib,
@@ -17,10 +16,7 @@ in
   options.services.shengNixBootstrap.enable = lib.mkOption {
     type = lib.types.bool;
     default = true;
-    description = ''
-      Register the baked-in store paths and create the system profile on
-      first boot, so {command}`nixos-rebuild` works on the device.
-    '';
+    description = "Register the baked-in store paths and create the system profile on first boot.";
   };
 
   config = lib.mkIf cfg.enable {

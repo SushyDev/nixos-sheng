@@ -25,13 +25,25 @@ nixos/
 
 | Module | Does |
 |---|---|
-| `hardware.nix` | Kernel, device tree (+ a `disable-dp-altmode` overlay), kernel params, root filesystem, firmware, networking. Unconditional. |
-| `image.nix` | `system.build.shengImage` — the ext4 + sparse rootfs images. |
+| `hardware.nix` | Kernel, device tree, kernel params, root filesystem, firmware. Unconditional, and hardware only — no users, no daemons, no hostname. |
+| `image.nix` | `system.build.shengImage` — the ext4 + sparse rootfs images, and `sheng.rootfs.etcNixosSource`. |
 | `extlinux.nix` | A fork of `generic-extlinux-compatible` that also writes U-Boot's `sheng-bootmenu.env`. |
 | `firmware.nix` | `services.shengFirmware.enable` — the vendor userspace. |
 | `boot-slot.nix` | `services.shengBootSlot.enable` — `qbootctl -m`. |
 | `nix-bootstrap.nix` | `services.shengNixBootstrap.enable` — first-boot store registration. |
 | `serial-console.nix` | `services.shengSerialConsole.enable` — the ttyGS0 gadget console. Off by default. |
+| `audio.nix` | `sheng.audio.enable` — the HiFi UCM verb, plus WirePlumber rules if the host runs WirePlumber. |
+| `camera.nix` | `sheng.camera.enable` / `.qtGstreamerBackend` — the libcamera monitor, and optionally Qt's GStreamer backend. |
+| `greeter.nix` | `sheng.greeter.enable` — the SDDM fixes, each gated on the host having enabled SDDM (and KWin, and fprintd). |
+| `build-cache.nix` | `sheng.buildCache.enable` — ccache for shengKernel builds on the device. Off by default. |
+| `power.nix` | Pins `SuspendState=mem` so systemd never falls back to the s2idle that hangs this device. |
+| `bringup.nix` | **Not imported by `default.nix`.** Root password, autologin, sshd, NetworkManager, mDNS — the host half of this repo's own reference image. |
+
+The split is the point: `default.nix` is a driver layer and configures nothing about how
+the machine is used. Workarounds that touch user-visible services are gated on the host
+having chosen the thing they fix — `greeter.nix` contributes nothing without SDDM, the
+WirePlumber rules nothing without WirePlumber, and `overlay.nix` exposes the patched SDDM
+as `shengSddm` rather than replacing `qt6Packages.sddm-unwrapped` for everyone.
 
 **U-Boot lives in a different repository.** It is pinned as the non-flake input
 `u-boot-src` (`github:SushyDev/u-boot`, branch `xiaomi-sheng`). To build against a local
@@ -345,8 +357,12 @@ so the numbers confirm a cut took effect and only the *screen* needs a human to 
 
 - `docker/authorized_keys` is a leftover of an earlier sshd-based builder design; nothing
   in the current `Dockerfile` or `compose.yaml` uses it.
-- `hardware.nix` ships root autologin, a baked root password (`password`) and a disabled
-  firewall. Bring-up defaults — see [README.md](README.md#first-boot).
+- `bringup.nix` ships root autologin and a baked root password (`password`), and
+  `hardware.nix` leaves the firewall off because this kernel has no netfilter match
+  modules. Bring-up defaults — see [README.md](README.md#first-boot).
+- The `disable-dp-altmode` note below the module table describes an overlay `hardware.nix`
+  does not actually apply; the sound node's dai-links reference DisplayPort Playback, and
+  removing it fails the whole card.
 - The U-Boot repository's `devenv.nix` `uboot:pack` task uses an older packing scheme
   (gzipped `u-boot-nodtb.bin` with an appended DTB) than `build-uboot.sh` and the Nix
   derivation, which both use `u-boot-dtb.bin`. Prefer the Nix build.

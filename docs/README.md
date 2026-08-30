@@ -254,9 +254,15 @@ nix run .#flash-rootfs      # userdata from ./result/sheng-rootfs.sparse.img
 ## First boot
 
 > **Important — these are bring-up defaults, not safe ones.**
-> The image ships with **root autologin** on tty1 and both serial consoles, a **baked root
-> password (`password`)**, and `networking.firewall.enable = false`. Change all three
-> before the device is on a network you do not control.
+> The image this repo builds (`nix build .#nixos`) includes `nixosModules.bringup`, which
+> ships **root autologin** on tty1 and both serial consoles and a **baked root password
+> (`password`)**; `networking.firewall.enable` is `false` because this kernel cannot load
+> the default ruleset. Change all three before the device is on a network you do not
+> control.
+>
+> None of that comes from `nixosModules.default`. A system you build from this flake as an
+> input gets the drivers only, and whatever login you configure yourself — see
+> [Getting into a freshly flashed board](#getting-into-a-freshly-flashed-board).
 
 Flashing `userdata` also wipes any Wi-Fi configuration and SSH keys, so a freshly flashed
 device is not reachable over the network. The way in is a **USB keyboard** — plug one into
@@ -304,18 +310,65 @@ The options worth setting in `./hosts/sheng.nix`:
 | Option | Default | Meaning |
 |---|---|---|
 | `sheng.rootfs.partlabel` | `"userdata"` | GPT label to install onto. Shared by the root filesystem, the kernel's `root=` and the image builder. |
-| `sheng.rootfs.imageSize` | `"10G"` | Size to grow the image to; `null` auto-sizes to contents. `null` does **not** make flashing faster — the sparse image shrinks by 0.02% — and it leaves only ~160 MB free instead of 7.5 GB should `growfs` fail. Keep the default unless you have a reason. |
+| `sheng.rootfs.imageSize` | `null` | Size to grow the image to; `null` auto-sizes to contents. Leave it `null` — a fixed size makes `resize2fs` write block groups the kernel later rejects, which kills `growfs` too. |
 | `sheng.rootfs.keepRawImage` | `false` | Also emit the raw ext4 image beside the sparse one. Costs `imageSize` of disk per build for a file nothing reads; turn it on to loopback-mount the filesystem. |
+| `sheng.rootfs.etcNixosSource` | `null` | Flake source to copy into `/etc/nixos` inside the image, so the device can `nixos-rebuild` itself with nothing attached. Set it to `inputs.self` to ship *your* configuration; `null` ships no `/etc/nixos` at all. |
 | `sheng.boot.configurationLimit` | `10` | Generations offered in U-Boot's menu. Each costs ~40 MiB of kernel in `/boot`. |
 | `sheng.boot.dtbName` | `"qcom/sm8550-xiaomi-sheng.dtb"` | Device tree the menu entries point at. |
+| `sheng.audio.enable` | `true` | The HiFi UCM verb at boot, plus the WirePlumber rules that name and prioritise this card's nodes. The WirePlumber half is skipped unless you run WirePlumber. |
+| `sheng.camera.enable` | `true` | Swap WirePlumber's V4L2 monitor for the libcamera one, so apps see cameras instead of raw CAMSS nodes. Skipped unless you run WirePlumber. |
+| `sheng.camera.qtGstreamerBackend` | `false` | Point Qt Multimedia at GStreamer **system-wide** and give it a PipeWire plugin path. Off by default because it changes the media backend for every Qt app, not just camera ones — but Qt's FFmpeg backend goes through V4L2 only and reports "no camera detected" here. |
+| `sheng.buildCache.enable` | `false` | Build shengKernel through ccacheStdenv, caching objects in `/var/cache/ccache`. Only worth it if you rebuild the kernel on the device, and the client running `nixos-rebuild` must be a trusted user or Nix silently drops the sandbox path. |
+| `sheng.greeter.enable` | `true` | Apply the greeter fixes to whatever display manager you configured. Today that means SDDM, and only if you enabled it: the patched build, `kwin --inputmethod`, the auto-rotation policy and the fingerprint PAM stack. |
 | `services.shengFirmware.enable` | `true` | The whole vendor userspace stack. |
 | `services.shengBootSlot.enable` | `true` | `qbootctl -m` after boot — leave this on. |
 | `services.shengNixBootstrap.enable` | `true` | First-boot store registration and boot-menu regeneration. |
 | `services.shengSerialConsole.enable` | `false` | Root console on the USB serial gadget (`ttyGS0`). Costs USB host mode while on — no hubs, keyboards or DP alt mode. Debugging only. |
 
-Also exported: `nixosModules.default` (all modules) and `nixosModules.firmware` (just the
-vendor userspace) for composing your own system, and `overlays.default`, which adds
-`shengKernel` and `shengPackages` to any nixpkgs.
+### What these modules do *not* configure
+
+They are a driver layer. They set the kernel, device tree, kernel command line, root
+filesystem, firmware, bootloader and the vendor userspace — and nothing about how you use
+the machine. There is no user, no password, no shell, no display manager, no sshd, no
+NetworkManager, no hostname and no `system.stateVersion`. A configuration built only from
+`nixosModules.default` boots and has no way to log in; that is deliberate.
+
+The workarounds that *look* like policy are all gated on you having chosen the thing they
+fix, so they cost nothing if you have not:
+
+| Fix | Applies when |
+|---|---|
+| Patched SDDM (rotation-aware wallpaper, fingerprint beside the password prompt) | `services.displayManager.sddm.enable` |
+| `kwin --inputmethod`, greeter auto-rotation | SDDM on Wayland with the KWin greeter |
+| `sddm-fingerprint` PAM service, `login.fprintAuth = false` | SDDM plus `services.fprintd.enable` |
+| WirePlumber UCM rules, node names and priorities | `services.pipewire.wireplumber.enable` |
+| WirePlumber libcamera monitor | `services.pipewire.wireplumber.enable` |
+
+The one exception is `networking.firewall.enable`, which is `mkDefault false`: this kernel
+is built without the netfilter match modules NixOS's default ruleset loads, so leaving the
+firewall on fails activation rather than protecting anything.
+
+### Getting into a freshly flashed board
+
+`nixosModules.bringup` is the host-shaped half this repo uses for its own reference image:
+a root password, an autologin getty, sshd, NetworkManager, mDNS and a handful of base
+tools. It is **not** imported by `nixosModules.default`.
+
+```nix
+nixosConfigurations.sheng = nixos-sheng.lib.shengSystem {
+  inherit nixpkgs;
+  modules = [ nixos-sheng.nixosModules.bringup ];
+};
+```
+
+**It is not safe.** The root password it sets is `password`, published in this file, and
+tty1 logs in as root without asking. Use it to bring a board up, then replace it with your
+own configuration.
+
+Also exported: `nixosModules.default` (all driver modules) and `nixosModules.firmware`
+(just the vendor userspace) for composing your own system, and `overlays.default`, which
+adds `shengKernel`, `shengPackages` and `shengSddm` to any nixpkgs.
+
 
 ### Re-export the build and flash commands into your own flake
 

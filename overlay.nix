@@ -1,21 +1,20 @@
-# Sheng kernel and vendor userspace, injected into pkgs so modules can use
-# pkgs.shengKernel / pkgs.shengPackages.* instead of importing paths.
 final: prev: {
   shengKernel = final.callPackage ./packages/kernel { };
   shengPackages = final.callPackage ./packages/firmware { };
 
-  # SDDM's greeter reads its screen geometry once, so the Breeze wallpaper
-  # keeps the size it had before the screen rotated. Patched through
-  # qt6Packages: kdePackages only re-exports sddm, so overriding it there
-  # leaves the wrapper on the stock build.
-  qt6Packages = prev.qt6Packages.overrideScope (
-    _: qprev: {
-      sddm-unwrapped = qprev.sddm-unwrapped.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
-          ./packages/sddm/0100-signal-a-geometry-change-when-the-screen-rotates.patch
-          ./packages/sddm/0101-verify-a-fingerprint-alongside-the-password-prompt.patch
-        ];
-      });
-    }
-  );
+  # SDDM with the sheng patches (wallpaper geometry on rotation, fingerprint
+  # beside the password prompt). Its own attribute rather than a global
+  # qt6Packages override, so only modules/greeter.nix opts into it.
+  # kdePackages just re-exports sddm, so the scope to patch is qt6Packages.
+  shengSddm =
+    (final.qt6Packages.overrideScope (
+      _: qprev: {
+        sddm-unwrapped = qprev.sddm-unwrapped.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [
+            ./packages/sddm/0100-signal-a-geometry-change-when-the-screen-rotates.patch
+            ./packages/sddm/0101-verify-a-fingerprint-alongside-the-password-prompt.patch
+          ];
+        });
+      }
+    )).sddm;
 }

@@ -37,7 +37,12 @@
         config.allowUnfree = true;
       };
 
-      sheng = self.lib.shengSystem { inherit nixpkgs; };
+      # Reference image: drivers plus bringup.nix, the host half that makes a
+      # flashed board reachable. Downstream configs supply their own.
+      sheng = self.lib.shengSystem {
+        inherit nixpkgs;
+        modules = [ ./modules/bringup.nix ];
+      };
 
       mkScripts =
         hostPkgs:
@@ -121,6 +126,9 @@
       nixosModules = {
         default = ./modules;
         firmware = ./modules/firmware.nix;
+
+        # Opt-in host policy, not a driver. NOT secure -- see its header.
+        bringup = ./modules/bringup.nix;
       };
 
       overlays.default = import ./overlay.nix;
