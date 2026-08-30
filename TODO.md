@@ -125,13 +125,12 @@ with either.
   nor PipeWire here and reports "camera is not supported on the platform".
   Snapshot and Kamoso (GStreamer) work. `libcamerify <app>` is the shim for
   V4L2-only applications.
-- **Greeter on-screen keyboard is unverified.** `modules/virtual-keyboard.nix`
-  gives SDDM's kwin greeter the `--inputmethod plasma-keyboard` that nixpkgs
-  omits, which is why the Breeze theme's keyboard button does nothing. Reasoned
-  from the nixpkgs and KDE sources and eval-checked, **not measured**. On the
-  device, check that a keyboard appears, that `pgrep plasma-keyboard` finds a
-  process while the greeter is up, and that `journalctl -u display-manager` is
-  free of kwin input-method errors.
+- **SDDM never signals a screen geometry change**, so after a rotation the
+  Breeze greeter keeps drawing its wallpaper at the pre-rotation size while
+  everything anchored to the window resizes normally. `ScreenModel` re-reads
+  the screen on every `data()` call but connects to nothing.
+  `packages/sddm/0100-signal-a-geometry-change-when-the-screen-rotates.patch`
+  fixes it and is worth sending upstream.
 - **Cold-boot verification owed.** The audio, camera and Maliit fixes have
   all been applied with `nixos-rebuild switch` plus service restarts. The
   ordering of `sheng-alsa-ucm.service` against the sound card appearing has
@@ -156,6 +155,8 @@ with either.
 - **Auto-rotate defaults to `inTabletMode` and `tabletMode` is always false.**
   `gpio-keys` advertises `SW_TABLET_MODE` but nothing drives it, so the policy
   has to be set to Always in System Settings for rotation to actually fire.
+  `modules/greeter.nix` does that for the greeter's own copy of the policy;
+  a user session is still on its owner to set.
 - **Two cosmetic libssc complaints**, neither fatal: `Mount matrix provided by
   firmware is all 0` (the udev rule supplies `ACCEL_MOUNT_MATRIX` anyway) and
   `Failed to unpack Xiaomi Davinci proximity measurement message`.
