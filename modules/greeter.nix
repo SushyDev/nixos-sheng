@@ -16,9 +16,7 @@ let
   # system-wide default to set instead.
   outputConfig = "/var/lib/sddm/.config/kwinoutputconfig.json";
 
-  # SDDM verifies against one account, so there has to be exactly one to pick.
-  normalUsers = lib.attrNames (lib.filterAttrs (_: u: u.isNormalUser) config.users.users);
-  fingerprintGreeter = cfg.enable && config.services.fprintd.enable && lib.length normalUsers == 1;
+  fingerprintGreeter = cfg.enable && config.services.fprintd.enable;
 in
 {
   config = lib.mkMerge [
@@ -78,7 +76,16 @@ in
         startSession = true;
       };
 
-      services.displayManager.sddm.settings.Fingerprintlogin.User = lib.head normalUsers;
+      # Now that the reader has its own service, take it out of the shared
+      # password stack that SDDM substacks. Left in both, a typed password
+      # waits out the 30s fprintd timeout before PAM ever looks at it, which
+      # is the whole reason the greeter felt slow. KWin does the same: only
+      # kde-fingerprint carries pam_fprintd, never the kde password service.
+      security.pam.services.login.fprintAuth = false;
+
+      # User is left unset: the 0101- patch then verifies against whoever logged
+      # in last, which is the account the greeter has preselected anyway.
+      services.displayManager.sddm.settings.Fingerprint.Enable = true;
     })
   ];
 }
