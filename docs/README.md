@@ -387,7 +387,7 @@ This port stands on other people's work.
   original `sm8550-xiaomi-sheng.dts` that this board's device tree is trimmed down from.
   The only third-party copyright line in the sheng-specific U-Boot code is theirs.
 - **[ianchb](https://github.com/ianchb)** — [`sm8550-mainline`](https://github.com/ianchb/sm8550-mainline)
-  (branch `sheng-7.2.0`), the kernel this actually runs, and
+  (branch `sheng-7.2.2`), the kernel this actually runs, and
   [`debian-sheng`](https://github.com/ianchb/debian-sheng), the source of the `sm8550.config`
   kernel configuration and of the vendor firmware/userspace packaging ported here.
 - **[alghiffaryfa19](https://gitlab.postmarketos.org/alghiffaryfa19)** — the postmarketOS
@@ -408,7 +408,7 @@ That grant does not extend to what the flake fetches or embeds:
 
 | Component | License |
 |---|---|
-| Kernel (`ianchb/sm8550-mainline`), and the patch hunks in `packages/kernel/default.nix` | `GPL-2.0-only` |
+| Kernel (`ianchb/sm8550-mainline`) | `GPL-2.0-only` |
 | U-Boot fork ([`SushyDev/u-boot`](https://github.com/SushyDev/u-boot)) | `GPL-2.0-or-later`; the device tree is `GPL-2.0-only OR BSD-3-Clause` |
 | `fastrpc`, `sheng-devauth` | `BSD-3-Clause` |
 | `sheng-fingerprint`, `sheng-thp`, `sheng-keyboard-helper` | `Apache-2.0` (fingerprint also bundles libfprint, `LGPL-2.1+`) |
