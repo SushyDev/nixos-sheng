@@ -26,12 +26,8 @@ stdenv.mkDerivation {
     hash = "sha256-UPLKuePBKgQsA0qgY5xcvoj6jpxHhxJ9pMWJdD23LSg=";
   };
 
-  # Retries the SSC service lookup, because sensorspd registers a few seconds
-  # after the aDSP boots. Replaces debian-sheng's wait_for_qmi_service.patch,
-  # which retried with sleep() inside the main-loop callback and so blocked the
-  # very bus it was waiting on.
-  # 0101 covers the second race: the aDSP registers its sensors one at a time,
-  # so a lookup that now runs early finds accel but not yet ambient light.
+  # Both replace debian-sheng's wait_for_qmi_service.patch, which retried with
+  # sleep() inside the main-loop callback and so blocked the bus it waited on.
   patches = [
     ./0100-retry-the-ssc-lookup-without-blocking-the-main-loop.patch
     ./0101-retry-sensor-discovery-while-the-adsp-registers.patch

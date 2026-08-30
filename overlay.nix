@@ -13,6 +13,7 @@ final: prev: {
       sddm-unwrapped = qprev.sddm-unwrapped.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [
           ./packages/sddm/0100-signal-a-geometry-change-when-the-screen-rotates.patch
+          ./packages/sddm/0101-authenticate-with-a-fingerprint-at-the-greeter.patch
         ];
       });
     }

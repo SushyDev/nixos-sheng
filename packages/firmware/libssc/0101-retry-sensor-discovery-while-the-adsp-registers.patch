@@ -59,7 +59,7 @@ the point past which the context may be freed.
  /*****************************************************************************/
 
 +/* The aDSP brings its sensors up one at a time, so a data type missing right
-+ * after boot may still appear. Retry rather than dropping it for good. */
++ * after boot may still appear. */
 +static gboolean
 +discovery_retry (gpointer user_data)
 +{
@@ -75,15 +75,14 @@ the point past which the context may be freed.
  static void
  report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_low, GArray *buf, gpointer user_data)
  {
-@@ -331,25 +348,38 @@
+@@ -331,25 +348,37 @@
  		/* Ignore if data type does not match due to concurrency */
  		if (g_strcmp0 (suid_msg->data_type, priv->data_type) != 0) {
  			ssc_suid_response__free_unpacked (suid_msg, NULL);
  			return;
  		}
 +
-+		/* This answers the discover() an armed retry would redo, and is
-+		 * the point past which ctx may be freed. */
++		/* A response can free ctx, which an armed retry still points at. */
 +		g_clear_handle_id (&priv->discovery_retry_id, g_source_remove);
 
  		/* Only default sensor for data type is reported */

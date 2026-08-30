@@ -64,7 +64,7 @@ costing that wait four times over.
 +static void bus_new_ready (GObject *source, GAsyncResult *res, gpointer user_data);
 +
 +/* A bus only learns about nodes that turn up while it is listening, so one
-+ * created before sensorspd registered will never see it. Start a fresh one. */
++ * created before sensorspd registered will never see it. */
 +static gboolean
 +lookup_retry (gpointer user_data)
 +{
@@ -84,7 +84,7 @@ costing that wait four times over.
  static void
  bus_new_ready (GObject *source, GAsyncResult *res, gpointer user_data)
  {
-@@ -371,14 +395,26 @@
+@@ -371,14 +395,25 @@
  		}
  	}
 
@@ -92,8 +92,7 @@ costing that wait four times over.
 +		guint attempt = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (task),
 +								     SSC_LOOKUP_ATTEMPT_KEY));
 +
-+		/* Expected on a cold boot: the aDSP is still bringing the sensor
-+		 * PD up. Come back on the next tick rather than failing. */
++		/* Expected on a cold boot: the aDSP is still bringing the sensor PD up. */
 +		if (attempt < SSC_LOOKUP_ATTEMPTS) {
 +			g_object_set_data (G_OBJECT (task), SSC_LOOKUP_ATTEMPT_KEY,
 +					   GUINT_TO_POINTER (attempt + 1));
