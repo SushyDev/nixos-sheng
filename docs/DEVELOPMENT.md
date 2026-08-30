@@ -236,21 +236,6 @@ defconfig in a local U-Boot checkout and build with `--override-input u-boot-src
 > Also: with `=n` the macros **discard their arguments**. Never put a side-effecting call
 > inside one. This has already cost one latched panel.
 
-### Kernel: panel module parameters — runtime, no rebuild
-
-Deliberately runtime rather than compile-time, so they can be flipped from U-Boot's
-bootargs without rebuilding a kernel per hypothesis:
-
-| Parameter | Effect |
-|---|---|
-| `panel_novatek_nt36532e.noinit=1` | Skip the DCS init sequence |
-| `panel_novatek_nt36532e.noreset=1` | Also skip the reset pulse, and request the reset GPIO as `GPIOD_ASIS` — preserving a DDIC that U-Boot already configured |
-
-Readable and writable at `/sys/module/panel_novatek_nt36532e/parameters/`.
-
-Regulators are still `regulator_bulk_enable()`d in both cases. An earlier version skipped
-them too, which invalidated the entire experiment.
-
 ### The `sheng.b=<n>` build tag
 
 Carried in `sheng.env`'s `bootrescue` bootargs. **Bump it on every build.** A plain
