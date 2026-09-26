@@ -3,7 +3,7 @@
 Working on `nixos-sheng`: the layout, the scripts, how to get diagnostics off a device
 with no serial port, and the things that have already cost someone a recovery.
 
-If you are just installing, you want [README.md](README.md) instead.
+If you are just installing, you want [INSTALL.md](INSTALL.md) instead.
 
 ---
 
@@ -466,6 +466,6 @@ version, not replaced. The rootfs is not built or published by CI; see
 ## Known issues
 
 - `bringup.nix` ships root autologin and a baked root password (`password`) — see
-  [README.md](README.md#first-boot).
+  [INSTALL.md](INSTALL.md#first-boot).
 - Not yet validated on hardware (September 2026): kernel 7.2.6-mac with patches 07/08,
   the factory Wi-Fi/Bluetooth addresses, and the SSC start gate.
