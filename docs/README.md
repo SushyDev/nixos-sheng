@@ -12,8 +12,8 @@ A daily-drivable tablet on mainline Linux. Installing **wipes the device** and n
 
 ## Hardware
 
-| | | |
-|---|---|---|
+| Component | Status | Details |
+|---|:---:|---|
 | Display | ✅ | 3048×2032 at 144 Hz over dual DSI with DSC, backlight, Adreno 740 acceleration |
 | Touch and pen | ✅ | Multitouch, Xiaomi pens with pressure, pen battery and pairing |
 | Keyboard cover | ✅ | Authenticated like on Android, backlight, mic-mute LED, turns off when folded back |

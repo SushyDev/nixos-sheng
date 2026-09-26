@@ -11,7 +11,7 @@ nixosConfigurations.sheng = nixos-sheng.lib.shengSystem {
 userspace, and nothing else: no user, login or network. `nixosModules.bringup` adds
 the insecure reference login (root autologin, password `password`, SSH).
 
-| Option | Default | |
+| Option | Default | Does |
 |---|---|---|
 | `sheng.vendor.enable` | on | Sensors, fingerprint, touch, pen, keyboard, 120 W charging |
 | `sheng.audio.enable` | on | Speakers, following orientation |
