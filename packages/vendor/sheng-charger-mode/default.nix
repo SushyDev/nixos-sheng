@@ -20,16 +20,15 @@ stdenvNoCC.mkDerivation {
 
   nativeBuildInputs = [ autoPatchelfHook ];
 
-  dontBuild = true;
-  dontConfigure = true;
+  postPatch = ''
+    substituteInPlace xiaomi-charger-mode.service \
+      --replace-fail /usr/libexec "$out/libexec"
+  '';
 
   installPhase = ''
     runHook preInstall
-
-    install -Dm755 xiaomi-charger-mode "$out/libexec/xiaomi-charger-mode"
-    install -Dm644 xiaomi-charger-mode.service \
-      "$out/lib/systemd/system/xiaomi-charger-mode.service"
-
+    install -Dm755 -t "$out/libexec" xiaomi-charger-mode
+    install -Dm644 -t "$out/lib/systemd/system" xiaomi-charger-mode.service
     runHook postInstall
   '';
 

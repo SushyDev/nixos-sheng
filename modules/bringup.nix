@@ -11,6 +11,11 @@
 
 {
   sheng.rootfs.etcNixosSource = self;
+  # etcNixosSource is a flake, so rebuilding from it needs these.
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
   networking.hostName = lib.mkDefault "sheng";
   networking.networkmanager.enable = true;

@@ -12,6 +12,8 @@
   ninja,
   pkg-config,
   autoPatchelfHook,
+  makeWrapper,
+  coreutils,
   glib,
   gusb,
   nss,
@@ -49,6 +51,7 @@ stdenv.mkDerivation {
     ninja
     pkg-config
     autoPatchelfHook
+    makeWrapper
   ];
   buildInputs = [
     glib
@@ -65,6 +68,14 @@ stdenv.mkDerivation {
 
   postPatch = ''
     sha256sum -c prebuilt/aarch64/SHA256SUMS
+
+    substituteInPlace systemd/qteesupplicant.service \
+      --replace-fail /usr/libexec "$out/libexec" \
+      --replace-fail /usr/lib/aarch64-linux-gnu/qtee-listeners "$out/lib/qtee-listeners"
+    substituteInPlace systemd/sfsconfig.service \
+      --replace-fail /usr/libexec "$out/libexec"
+    substituteInPlace systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf \
+      --replace-fail /usr/lib/xiaomi-sheng-fingerprint "$out/lib/xiaomi-sheng-fingerprint"
   '';
 
   buildPhase = ''
@@ -93,6 +104,8 @@ stdenv.mkDerivation {
 
     install -m 0755 prebuilt/aarch64/qteesupplicant "$out/libexec/"
     install -m 0755 prebuilt/aarch64/sfs_config "$out/libexec/fpc-sfs-config"
+    # A shell script that only needs install(1).
+    wrapProgram "$out/libexec/fpc-sfs-config" --prefix PATH : ${lib.makeBinPath [ coreutils ]}
 
     for listener in prebuilt/aarch64/qtee-listeners/*.so.1.0.0; do
       name=$(basename "$listener")
@@ -100,16 +113,9 @@ stdenv.mkDerivation {
       ln -s "$name" "$listenerDir/''${name%.0.0}"
     done
 
-    substitute systemd/qteesupplicant.service "$out/lib/systemd/system/qteesupplicant.service" \
-      --replace-fail /usr/libexec "$out/libexec" \
-      --replace-fail /usr/lib/aarch64-linux-gnu/qtee-listeners "$listenerDir"
-    install -m 0644 systemd/sfsconfig.service "$out/lib/systemd/system/"
-    substitute systemd/sfsconfig.service "$out/lib/systemd/system/sfsconfig.service" \
-      --replace-fail /usr/libexec "$out/libexec"
-    substitute systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf \
-      "$out/lib/systemd/system/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf" \
-      --replace-fail /usr/lib/xiaomi-sheng-fingerprint "$fpDir"
-    install -m 0644 udev/99-qcomtee-fpc.rules "$out/lib/udev/rules.d/"
+    install -m 0644 -t "$out/lib/systemd/system" systemd/qteesupplicant.service systemd/sfsconfig.service
+    install -m 0644 -t "$out/lib/systemd/system/fprintd.service.d" systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf
+    install -m 0644 -t "$out/lib/udev/rules.d" udev/99-qcomtee-fpc.rules
 
     runHook postInstall
   '';
@@ -121,6 +127,7 @@ stdenv.mkDerivation {
       lgpl21Plus
       gpl2Plus
       bsd3
+      unfree # prebuilt/aarch64: the QTEE supplicant and listeners
     ];
     platforms = [ "aarch64-linux" ];
   };

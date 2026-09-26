@@ -1,5 +1,6 @@
 # Writes /boot/extlinux/extlinux.conf and the menu file U-Boot imports. Forked
-# from generic-extlinux-compatible, whose addEntry() skips initrd-less systems.
+# from generic-extlinux-compatible, whose builder skips any generation without
+# an initrd -- which is every generation here.
 {
   config,
   lib,
@@ -19,23 +20,21 @@ let
     ];
     runtimeEnv = {
       SHENG_BOOT_LIMIT = toString cfg.configurationLimit;
-      SHENG_DTB_NAME = cfg.dtbName;
+      SHENG_DTB_NAME = config.hardware.deviceTree.name;
     };
     text = builtins.readFile ./install-boot.sh;
   };
 in
 {
+  imports = [
+    (lib.mkRenamedOptionModule [ "sheng" "boot" "dtbName" ] [ "hardware" "deviceTree" "name" ])
+  ];
+
   options.sheng.boot = {
     configurationLimit = lib.mkOption {
       type = lib.types.int;
       default = 10;
       description = "How many generations U-Boot's menu offers. bootmenu.c caps it at 99.";
-    };
-
-    dtbName = lib.mkOption {
-      type = lib.types.str;
-      default = "qcom/sm8550-xiaomi-sheng.dtb";
-      description = "Device tree within the generation's `dtbs` directory, written into each FDT line.";
     };
 
     installer = lib.mkOption {
@@ -51,7 +50,6 @@ in
     system.build.installBootLoader = lib.getExe installer;
     system.boot.loader.id = "sheng-extlinux";
 
-    # Cannot be used here -- see the header.
     boot.loader.generic-extlinux-compatible.enable = false;
     boot.loader.grub.enable = false;
   };

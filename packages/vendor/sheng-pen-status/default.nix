@@ -30,16 +30,19 @@ stdenv.mkDerivation {
     qt6.qtsvg
   ];
 
-  buildPhase = ''
-    runHook preBuild
+  # Upstream commits its Debian build (Makefile, objects, both binaries). With
+  # every store mtime equal, make calls those up to date and ships a binary
+  # linked against /lib and Qt 6.8.
+  postPatch = ''
+    rm Makefile main.o qrc_resources.o qrc_resources.cpp \
+      xiaomi-pen-status xiaomi-pen-status-cli
+  '';
 
-    qmake6 xiaomi-pen-status.pro
-    make
-
+  # The qmake hook configures and builds xiaomi-pen-status.pro; the CLI is a
+  # lone source file with no project of its own.
+  postBuild = ''
     $CXX -std=c++17 -O2 -Wall -Wextra -pedantic \
       xiaomi-pen-status-cli.cpp -o xiaomi-pen-status-cli
-
-    runHook postBuild
   '';
 
   installPhase = ''

@@ -110,7 +110,7 @@ nixos/
 | Module | Switch | Does |
 |---|---|---|
 | `hardware/default.nix` | — | Kernel, device tree, kernel params, root filesystem, firmware. Hardware only — no users, no daemons, no hostname. |
-| `hardware/audio.nix` | `sheng.audio.enable` | The HiFi UCM verb, bound to the card's device unit; speaker channels follow orientation; WirePlumber rules if the host runs WirePlumber. |
+| `hardware/audio.nix` | `sheng.audio.enable` | The UCM profile on ALSA's search path for ACP; speakers follow orientation (landscape stereo swap, portrait mono in the amp DSP), reasserted when the verb is re-applied. |
 | `hardware/camera.nix` | `sheng.camera.enable` / `.qtGstreamerBackend` | The libcamera monitor, and optionally Qt's GStreamer backend. |
 | `hardware/sensors.nix` | `sheng.vendor.enable` | fastrpc sensor PD (gated on SSC answering), libssc, iio-sensor-proxy. |
 | `hardware/qtee.nix` | `sheng.vendor.enable` | qteesupplicant, fingerprint via fprintd, keyboard cover authentication. |
@@ -118,7 +118,7 @@ nixos/
 | `hardware/power.nix` | — / `sheng.vendor.enable` | Pins `SuspendState=mem` (s2idle hangs this device); MiPPS 120 W authentication and charger-mode screen. |
 | `hardware/wireless.nix` | `sheng.factoryAddresses.enable` | Factory Wi-Fi/Bluetooth addresses from `persist`, mounted read-only. |
 | `boot/extlinux.nix` | — | Fork of `generic-extlinux-compatible` that also writes U-Boot's `sheng-bootmenu.env`, one entry per generation and specialisation (script: `install-boot.sh`). |
-| `boot/image.nix` | — | `system.build.shengImage`: ext4 + Android sparse rootfs, and `sheng.rootfs.etcNixosSource`. |
+| `boot/image.nix` | — | `system.build.shengImage` (Android sparse rootfs) and `.shengRawImage` (the ext4 it is made from); `sheng.rootfs.etcNixosSource`. |
 | `boot/slot.nix` | `sheng.boot.markSuccessful` | `qbootctl -m` once up. |
 | `boot/nix-bootstrap.nix` | `sheng.boot.registerStore` | First-boot store registration. |
 | `system/greeter.nix` | `sheng.greeter.enable` | The SDDM fixes, each gated on the host having enabled SDDM (and KWin, and fprintd). |
@@ -449,7 +449,5 @@ so the numbers confirm a cut took effect and only the *screen* needs a human to 
 
 - `bringup.nix` ships root autologin and a baked root password (`password`) — see
   [README.md](README.md#first-boot).
-- The firewall is `mkDefault false`. The kernel now has `nft_fib_inet` and the modules
-  select the nftables backend, so it should load; turn it on once that is confirmed.
 - Not yet validated on hardware (September 2026): kernel 7.2.6-mac with patches 07/08,
   the factory Wi-Fi/Bluetooth addresses, and the SSC start gate.

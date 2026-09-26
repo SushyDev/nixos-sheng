@@ -20,23 +20,15 @@ in
     }
 
     (lib.mkIf config.sheng.vendor.enable {
-      environment.systemPackages = [
-        sp.sheng-mipps-auth
-        sp.sheng-charger-mode
-      ];
-
-      # Without MiPPS the charger negotiates down from 120 W.
+      # MiPPS is started by its udev rule on charger attach.
       systemd.packages = [
         sp.sheng-mipps-auth
         sp.sheng-charger-mode
       ];
-
       services.udev.packages = [ sp.sheng-mipps-auth ];
 
-      systemd.services = {
-        xiaomi-mipps-auth.wantedBy = [ "multi-user.target" ];
-        xiaomi-charger-mode.wantedBy = [ "multi-user.target" ];
-      };
+      # Its own [Install] section, which systemd.packages does not apply.
+      systemd.services.xiaomi-charger-mode.wantedBy = [ "sysinit.target" ];
     })
   ];
 }

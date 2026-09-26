@@ -45,12 +45,6 @@
 
       forHosts = f: nixpkgs.lib.genAttrs hostSystems (s: f nixpkgs.legacyPackages.${s});
 
-      pkgs = import nixpkgs {
-        system = target;
-        overlays = [ self.overlays.default ];
-        config.allowUnfree = true;
-      };
-
       # Reference image: drivers plus bringup.nix, the host half that makes a
       # flashed board reachable. Downstream configs supply their own.
       sheng = self.lib.shengSystem {
@@ -61,13 +55,20 @@
         ];
       };
 
+      inherit (sheng) pkgs;
+
       scriptsFor = hostPkgs: import ./scripts { pkgs = hostPkgs; };
     in
     {
       lib = import ./lib { inherit self; };
 
       nixosModules = {
-        default = ./modules;
+        # Self-contained: brings its own overlay, so it also works imported
+        # into a plain nixosSystem.
+        default = {
+          imports = [ ./modules ];
+          nixpkgs.overlays = [ self.overlays.default ];
+        };
 
         # Opt-in host policy, not a driver. NOT secure -- see its header.
         bringup = ./modules/bringup.nix;

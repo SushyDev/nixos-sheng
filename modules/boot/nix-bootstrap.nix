@@ -4,7 +4,6 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }:
 
@@ -20,11 +19,6 @@ in
   };
 
   config = lib.mkIf cfg.registerStore {
-    nix.settings.experimental-features = [
-      "nix-command"
-      "flakes"
-    ];
-
     # U-Boot's rescue path boots /boot/Image with no init=, so the kernel's
     # built-in search must find /sbin/init. $systemConfig, not
     # config.system.build.toplevel, which recurses.
@@ -51,8 +45,6 @@ in
       };
 
       script = ''
-        set -eu
-
         ${lib.getExe' nix "nix-store"} --load-db < /nix-path-registration
 
         touch /etc/NIXOS

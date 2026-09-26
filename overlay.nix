@@ -1,6 +1,6 @@
 # Kernel sources come from the flake's inputs; overlays.default is this, applied.
 { kernelSrc, kernelConfig }:
-final: prev: {
+final: _: {
   shengKernel = final.callPackage ./packages/kernel {
     src = kernelSrc;
     baseConfig = "${kernelConfig}/sm8550.config";

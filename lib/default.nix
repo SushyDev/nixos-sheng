@@ -1,6 +1,6 @@
-# shengSystem: nixosSystem preconfigured for the Xiaomi Pad 6S Pro.
+# shengSystem: nixosSystem with the sheng module already imported.
 #
-#   nix-sheng.lib.shengSystem { modules = [ ./hosts/sheng.nix ]; }
+#   nixos-sheng.lib.shengSystem { modules = [ ./hosts/sheng.nix ]; }
 #
 # nixpkgs defaults to this flake's own input; to share one across a fleet,
 # either use inputs.nixos-sheng.inputs.nixpkgs.follows or pass it here.
@@ -11,25 +11,13 @@
     {
       nixpkgs ? self.inputs.nixpkgs,
       modules ? [ ],
-      system ? "aarch64-linux",
-      overlays ? [ ],
       specialArgs ? { },
     }:
     nixpkgs.lib.nixosSystem {
-      inherit system;
-
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [ self.overlays.default ] ++ overlays;
-        # QTEE and the firmware blobs are proprietary.
-        config.allowUnfree = true;
-      };
-
       specialArgs = {
         inherit self;
       }
       // specialArgs;
-
-      modules = [ ../modules ] ++ modules;
+      modules = [ self.nixosModules.default ] ++ modules;
     };
 }

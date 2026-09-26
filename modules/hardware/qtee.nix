@@ -11,22 +11,20 @@ let
 in
 {
   config = lib.mkIf config.sheng.vendor.enable {
-    environment.systemPackages = [
-      sp.sheng-fingerprint
-      sp.sheng-devauth
-    ];
-
-    systemd.packages = [
-      sp.sheng-fingerprint
-      sp.sheng-devauth
-    ];
-
+    # Its udev rule starts qteesupplicant once /dev/tee0 appears.
+    systemd.packages = [ sp.sheng-fingerprint ];
     services.udev.packages = [ sp.sheng-fingerprint ];
 
-    systemd.services = {
-      qteesupplicant.wantedBy = [ "multi-user.target" ];
-      sfsconfig.wantedBy = [ "qteesupplicant.service" ];
-      sheng-devauth.wantedBy = [ "sysinit.target" ];
+    systemd.services.sheng-devauth = {
+      description = "Xiaomi keyboard accessory authentication";
+      requires = [ "qteesupplicant.service" ];
+      after = [ "qteesupplicant.service" ];
+      wantedBy = [ "sysinit.target" ];
+      serviceConfig = {
+        ExecStart = lib.getExe sp.sheng-devauth;
+        Restart = "on-failure";
+        RestartSec = 5;
+      };
     };
 
     services.fprintd.enable = true;

@@ -1,12 +1,13 @@
 # Restores fold-angle behavior for the detachable keyboard cover (disables
 # keyboard/touchpad when folded back) and syncs the mic-mute LED with the
-# active PipeWire session.
+# active PipeWire session. Ships its own units and udev rules, which start it.
 # Source: https://github.com/ianchb/xiaomi-sheng-keyboard-helper
 {
   lib,
   stdenv,
   fetchFromGitHub,
   pkg-config,
+  coreutils,
   glib,
   libssc,
 }:
@@ -28,23 +29,23 @@ stdenv.mkDerivation {
     libssc
   ];
 
-  # Upstream's Makefile hardcodes -I/usr/include/libssc instead of using
-  # pkg-config. -Werror is too strict for compilers this new.
+  # The Makefile hardcodes the libssc include dir and installs under
+  # $(DESTDIR)/usr. -Werror is too strict for compilers this new.
   postPatch = ''
     substituteInPlace Makefile \
       --replace-fail -Werror "" \
-      --replace-fail "/usr/include/libssc" "${libssc}/include/libssc"
+      --replace-fail /usr/include/libssc ${lib.getDev libssc}/include/libssc \
+      --replace-fail '$(DESTDIR)/usr' '$(DESTDIR)'
+    substituteInPlace systemd/*.service systemd-user/*.service \
+      --replace-fail /usr/libexec "$out/libexec"
+    substituteInPlace udev/*.rules \
+      --replace-fail /usr/bin/chmod ${lib.getExe' coreutils "chmod"}
   '';
 
   installFlags = [ "DESTDIR=${placeholder "out"}" ];
 
-  postInstall = ''
-    mv "$out/usr"/* "$out/"
-    rmdir "$out/usr"
-  '';
-
   meta = {
-    description = "Fold-angle + mic-mute helper for the sheng keyboard accessory";
+    description = "Fold-angle and mic-mute helper for the sheng keyboard accessory";
     license = lib.licenses.asl20;
     platforms = [ "aarch64-linux" ];
   };

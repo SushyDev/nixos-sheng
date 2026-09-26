@@ -21,6 +21,10 @@
   };
 
   config = {
+    nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
+    # The firmware, the QTEE runtime and the charger daemons are proprietary.
+    nixpkgs.config.allowUnfree = true;
+
     boot.kernelPackages = pkgs.linuxPackagesFor pkgs.shengKernel;
 
     hardware.deviceTree = {
@@ -40,11 +44,6 @@
       "rw"
       "rootwait"
       "log_buf_len=8M"
-
-      # The monitor hub fails its first control transfer with EIO. Neither of
-      # these fixes it, but autosuspend is pointless on a bus-powered hub.
-      "usbcore.quirks=05e3:0610:k"
-      "usbcore.autosuspend=-1"
     ];
 
     fileSystems."/" = {
@@ -59,7 +58,5 @@
 
     # The kernel lacks the xt_* matches iptables rules need, but has nft_fib.
     networking.nftables.enable = lib.mkDefault true;
-    # TODO: turn on once the nftables ruleset is confirmed on hardware.
-    networking.firewall.enable = lib.mkDefault false;
   };
 }

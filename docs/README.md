@@ -139,7 +139,7 @@ Two artifacts come out: **`boot.img`** (U-Boot, flashed to the boot partitions) 
 **`sheng-rootfs.sparse.img`** (the NixOS rootfs, flashed to `userdata`).
 
 > **Note** — the rootfs is `sheng-rootfs.sparse.img`, not `userdata.img` or `rootfs.img`.
-> Set `sheng.rootfs.keepRawImage = true` if you also want the raw ext4 image to loopback-mount.
+> `system.build.shengRawImage` is the raw ext4 image it is made from, to loopback-mount.
 
 ### With Docker (recommended)
 
@@ -191,7 +191,7 @@ Only useful on `aarch64-linux`, or with a remote builder that has network access
 
 ```sh
 nix build .#u-boot     # $out/boot.img
-nix build .#nixos      # $out/sheng-rootfs.sparse.img  (+ sheng-rootfs.img)
+nix build .#nixos      # $out/sheng-rootfs.sparse.img
 nix build .#kernel
 ```
 
@@ -265,7 +265,7 @@ nix run .#flash-rootfs      # userdata from ./out/sheng-rootfs.sparse.img
 > **Important — these are bring-up defaults, not safe ones.**
 > The image this repo builds (`nix build .#nixos`) includes `nixosModules.bringup`, which
 > ships **root autologin** on tty1 and both serial consoles and a **baked root password
-> (`password`)**, with SSH open and the firewall off. Change the password before the
+> (`password`)**, with SSH open. Change the password before the
 > device is on a network you do not control.
 >
 > None of that comes from `nixosModules.default`. A system you build from this flake as an
@@ -310,33 +310,32 @@ Replace `SushyDev` with your own fork if you have one.
 }
 ```
 
-`shengSystem` builds its own `pkgs` with the sheng overlay and `allowUnfree = true`
-(the QTEE and vendor blobs are proprietary), so you do not have to configure either.
+`shengSystem` is `nixosSystem` with `nixosModules.default` already imported. That module
+brings the sheng overlay, `nixpkgs.hostPlatform` and `allowUnfree = true` (the QTEE and
+vendor blobs are proprietary), so importing it into a plain `nixosSystem` works the same.
 
 The options worth setting in `./hosts/sheng.nix`:
 
 | Option | Default | Meaning |
 |---|---|---|
 | `sheng.rootfs.partlabel` | `"userdata"` | GPT label to install onto. Shared by the root filesystem, the kernel's `root=` and the image builder. |
-| `sheng.rootfs.imageSize` | `null` | Fixed size to grow the image to; `null` auto-sizes to contents. Leave it `null`: `resize2fs` writes block groups whose bitmap checksums the kernel rejects, which then blocks `growfs`. |
-| `sheng.rootfs.keepRawImage` | `false` | Also emit the raw ext4 image beside the sparse one. Costs `imageSize` of disk per build for a file nothing reads; turn it on to loopback-mount the filesystem. |
 | `sheng.rootfs.etcNixosSource` | `null` | Flake source to copy into `/etc/nixos` inside the image, so the device can `nixos-rebuild` itself with nothing attached. Set it to `inputs.self` to ship *your* configuration; `null` ships no `/etc/nixos` at all. |
 | `sheng.boot.configurationLimit` | `10` | Generations offered in U-Boot's menu. Each costs ~40 MiB of kernel in `/boot`. |
-| `sheng.boot.dtbName` | `"qcom/sm8550-xiaomi-sheng.dtb"` | Device tree the menu entries point at. |
-| `sheng.audio.enable` | `true` | The HiFi UCM verb at boot, plus the WirePlumber rules that name and prioritise this card's nodes. The WirePlumber half is skipped unless you run WirePlumber. |
+| `sheng.audio.enable` | `true` | Put the sheng UCM profile on ALSA's search path, so PipeWire's ACP drives the card like any other, and follow orientation with the speakers: the stereo pair swaps between the two landscapes, and portrait mixes to mono in the amps' own DSP. |
 | `sheng.camera.enable` | `true` | Swap WirePlumber's V4L2 monitor for the libcamera one, so apps see cameras instead of raw CAMSS nodes. Skipped unless you run WirePlumber. |
 | `sheng.camera.qtGstreamerBackend` | `false` | Point Qt Multimedia at GStreamer **system-wide** and give it a PipeWire plugin path. Off by default because it changes the media backend for every Qt app, not just camera ones — but Qt's FFmpeg backend goes through V4L2 only and reports "no camera detected" here. |
 | `sheng.buildCache.enable` | `false` | Build shengKernel through ccacheStdenv, caching objects in `/var/cache/ccache`. Only worth it if you rebuild the kernel on the device, and the client running `nixos-rebuild` must be a trusted user or Nix silently drops the sandbox path. |
 | `sheng.greeter.enable` | `true` | Apply the greeter fixes to whatever display manager you configured. Today that means SDDM, and only if you enabled it: the patched build, `kwin --inputmethod`, the auto-rotation policy and the fingerprint PAM stack. |
 | `sheng.vendor.enable` | `true` | The whole vendor userspace stack. |
 | `sheng.factoryAddresses.enable` | `true` | Factory Wi-Fi/Bluetooth addresses from Android's `persist` partition, mounted read-only and never checked or replayed. |
-| `sheng.performance.enable` | `false` | zram swap, systemd-oomd, a deprioritised nix-daemon. The reference image turns it on. |
+| `sheng.performance.enable` | `false` | zram sized to RAM with VM tuning for it, systemd-oomd, a deprioritised nix-daemon. The reference image turns it on. |
 | `sheng.boot.markSuccessful` | `true` | `qbootctl -m` after boot — leave this on. |
 | `sheng.boot.registerStore` | `true` | First-boot store registration and boot-menu regeneration. |
 | `sheng.serialConsole.enable` | `false` | Root console on the USB serial gadget (`ttyGS0`). Costs USB host mode while on — no hubs, keyboards or DP alt mode. Debugging only. |
 
-The pre-September names (`services.shengFirmware.enable` and friends) still work, with a
-warning.
+The pre-September names (`services.shengFirmware.enable` and friends) and
+`sheng.boot.dtbName` (now `hardware.deviceTree.name`) still work, with a warning.
+`sheng.rootfs.imageSize` and `sheng.rootfs.keepRawImage` are gone.
 
 ### What these modules do *not* configure
 
@@ -354,12 +353,9 @@ fix, so they cost nothing if you have not:
 | Patched SDDM (rotation-aware wallpaper, fingerprint beside the password prompt) | `services.displayManager.sddm.enable` |
 | `kwin --inputmethod`, greeter auto-rotation | SDDM on Wayland with the KWin greeter |
 | `sddm-fingerprint` PAM service, `login.fprintAuth = false` | SDDM plus `services.fprintd.enable` |
-| WirePlumber UCM rules, node names and priorities, no BLE MIDI monitor | `services.pipewire.wireplumber.enable` |
+| No BLE MIDI monitor | `services.pipewire.wireplumber.enable` |
 | WirePlumber libcamera monitor | `services.pipewire.wireplumber.enable` |
 | Factory Bluetooth address | `hardware.bluetooth.enable` |
-
-The one exception is `networking.firewall.enable`, which is `mkDefault false` until the
-nftables ruleset is confirmed on this kernel.
 
 ### Getting into a freshly flashed board
 
@@ -378,7 +374,8 @@ nixosConfigurations.sheng = nixos-sheng.lib.shengSystem {
 tty1 logs in as root without asking. Use it to bring a board up, then replace it with your
 own configuration.
 
-Also exported: `nixosModules.default` (all driver modules) for composing your own system,
+Also exported: `nixosModules.default` (all driver modules, with the overlay) for composing
+your own system,
 and `overlays.default`, which adds `shengKernel`, `shengPackages` and `shengSddm` to any
 nixpkgs.
 
@@ -427,10 +424,10 @@ packages do.
 | Package | What it is |
 |---|---|
 | `sheng-firmware-blobs` | The Qualcomm/Xiaomi firmware images (ADSP, CDSP, modem, WLAN, touch). Installed via `hardware.firmware` **uncompressed** — this kernel has no `FW_LOADER_COMPRESS`. |
-| `fastrpc` | The FastRPC daemon (`adsprpcd-sensorspd`) that carries every DSP-side service. |
-| `libssc` | Qualcomm's Sensor Sub-System client library — the sensors sit on top of it. |
-| `sheng-sensors` | udev rules binding the SSC sensor nodes. |
-| `iio-sensor-proxy` | Accelerometer/ALS/proximity/compass to the desktop, patched to read them from the SSC stack via `libssc`. |
+| `fastrpc` | Qualcomm's FastRPC userspace; `adsprpcd` carries the aDSP's sensors PD. |
+| `libssc` | nixpkgs' Sensor Core client library, patched to wait for the aDSP to register its sensors. |
+| `sheng-sensors` | The SSC sensor registry the aDSP loads, and the udev rule declaring this board's accelerometer, proximity sensor and mount matrix. |
+| `iio-sensor-proxy` | nixpkgs' (SSC support is upstream), patched so clients that ask during the ~20 s SSC discovery still see the sensors. |
 | `sheng-devauth` | Keyboard cover authentication, through QTEE. |
 | `sheng-fingerprint` | FPC1553 reader: `fprintd` integration, `qteesupplicant` and `sfsconfig` for the TrustZone side, and its udev rules. |
 | `sheng-thp` | Touch Host Processing — the DSP-side half of the touchscreen. |
@@ -440,8 +437,9 @@ packages do.
 | `sheng-charger-mode` | Offline/charging-mode handling. |
 | `alsa-ucm-sheng` | ALSA UCM2 profile (`Xiaomi/sheng`) so audio routing works. |
 
-Each lives in its own directory under `nixos/packages/vendor/`, holding a `default.nix`
-plus whatever unit files, udev rules or configs it installs.
+`libssc` and `iio-sensor-proxy` are overrides of the nixpkgs packages; the rest live in
+their own directories under `nixos/packages/vendor/`. Units and udev rules come from
+upstream where it ships them, and are defined in the modules where it does not.
 
 ---
 
@@ -480,13 +478,13 @@ That grant does not extend to what the flake fetches or embeds:
 | `fastrpc`, `sheng-devauth` | `BSD-3-Clause` |
 | `sheng-fingerprint`, `sheng-thp`, `sheng-keyboard-helper` | `Apache-2.0` (fingerprint also bundles libfprint, `LGPL-2.1+`) |
 | `libssc` | `GPL-3.0-only` |
-| `sheng-pen-status` | `GPL-2.0-only` |
+| `sheng-pen-status`, `sheng-mipps-auth` | `GPL-2.0-only` |
 | `iio-sensor-proxy` | `GPL-3.0-only` |
 | `alsa-ucm-sheng` | `MIT` |
-| `sheng-firmware-blobs`, `sheng-sensors`, `sheng-mipps-auth`, `sheng-charger-mode` | **Proprietary** (`unfree`) |
+| `sheng-firmware-blobs`, `sheng-sensors`, `sheng-charger-mode`, the QTEE half of `sheng-fingerprint` | **Proprietary** (`unfree`) |
 
 Every derivation carries a `meta.license`, so `allowUnfree` gates the proprietary ones —
-which is why `shengSystem` sets it.
+which is why `nixosModules.default` sets it.
 
 > **Warning** — the built rootfs image contains proprietary Xiaomi and Qualcomm firmware
 > that carries no redistribution grant. Building it for your own device is one thing;
