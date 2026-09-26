@@ -141,6 +141,12 @@ Two artifacts come out: **`boot.img`** (U-Boot, flashed to the boot partitions) 
 > **Note** — the rootfs is `sheng-rootfs.sparse.img`, not `userdata.img` or `rootfs.img`.
 > `system.build.shengRawImage` is the raw ext4 image it is made from, to loopback-mount.
 
+**Prebuilt U-Boot:** every U-Boot change on `main` leaves a `boot.img` on its
+[Actions run](https://github.com/SushyDev/nixos-sheng/actions/workflows/u-boot.yml),
+and tagged versions are on [Releases](https://github.com/SushyDev/nixos-sheng/releases).
+There is no prebuilt rootfs: it carries vendor firmware with no redistribution grant
+(see [Licensing](#licensing)), so build it yourself.
+
 ### With Docker (recommended)
 
 ```sh

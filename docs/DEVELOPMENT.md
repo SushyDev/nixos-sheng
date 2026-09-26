@@ -445,6 +445,24 @@ so the numbers confirm a cut took effect and only the *screen* needs a human to 
 
 ---
 
+## CI and releases
+
+`.github/workflows/u-boot.yml` builds U-Boot on an arm64 runner. A push to `main` builds
+only when the U-Boot derivation changed (its package, `mk-boot-img`, or a lock bump of
+`u-boot-src` or nixpkgs) and leaves `boot.img` on the run as an artifact.
+
+To release, tag and push; CI builds it, attaches it to a draft prerelease and publishes
+that:
+
+```sh
+git tag u-boot/v1 && git push origin u-boot/v1
+```
+
+Releases in this repository are immutable: a published release takes no more assets
+and its tag can never be reused, so a broken release is superseded by the next
+version, not replaced. The rootfs is not built or published by CI; see
+[README.md](README.md#licensing).
+
 ## Known issues
 
 - `bringup.nix` ships root autologin and a baked root password (`password`) — see

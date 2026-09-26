@@ -1,0 +1,123 @@
+# U-Boot for sheng, built from the u-boot-src this flake pins.
+#
+# Rolling: a push to main that changes the U-Boot derivation (its package,
+# mk-boot-img, or a flake.lock bump of u-boot-src or nixpkgs) uploads boot.img
+# as an artifact of the run.
+#
+# Release: pushing a u-boot/v* tag builds it, attaches it to a draft
+# prerelease and publishes that. Releases here are immutable, so every asset
+# has to be on the draft before it is published.
+name: U-Boot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - packages/u-boot/**
+      - scripts/default.nix
+      - scripts/mk-boot-img
+      - .github/workflows/u-boot.yml
+    tags: ["u-boot/v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: u-boot-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      built: ${{ steps.build.outputs.built }}
+      source: ${{ steps.build.outputs.source }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The previous commit, to compare derivations against.
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v31
+
+      # flake.lock also moves for the kernel and nixpkgs; only the derivation
+      # says whether U-Boot changed.
+      - name: Check whether U-Boot changed
+        id: changed
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          drv() { nix eval --raw "git+file://$PWD?rev=$1#packages.aarch64-linux.u-boot.drvPath"; }
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null && [ "$(drv "$BEFORE")" = "$(drv "$GITHUB_SHA")" ]; then
+            echo "U-Boot is unchanged since ${BEFORE::7}; nothing to build." >> "$GITHUB_STEP_SUMMARY"
+            echo skip=true >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        id: build
+        if: steps.changed.outputs.skip != 'true'
+        run: |
+          nix build -L .#u-boot
+          mkdir out
+          cp result/boot.img out/
+          (cd out && sha256sum boot.img > SHA256SUMS)
+
+          source=$(nix flake metadata --json |
+            jq -r '.locks.nodes["u-boot-src"].locked | "\(.owner)/\(.repo)@\(.rev)"')
+          {
+            echo built=true
+            echo "source=$source"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "Built from [$source](https://github.com/${source%@*}/tree/${source#*@})."
+            echo
+            echo '```'
+            cat out/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: steps.build.outputs.built == 'true'
+        with:
+          name: u-boot
+          path: out/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag' && needs.build.outputs.built == 'true'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: u-boot
+          path: out
+
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          SOURCE: ${{ needs.build.outputs.source }}
+        run: |
+          gh release create "$TAG" out/* \
+            --draft --prerelease --verify-tag \
+            --title "U-Boot ${TAG#u-boot/}" \
+            --notes "$(cat <<EOF
+          Built from [$SOURCE](https://github.com/${SOURCE%@*}/tree/${SOURCE#*@}).
+
+          Flash it to both slots from fastboot:
+
+          \`\`\`sh
+          fastboot erase dtbo_ab
+          fastboot flash boot_ab boot.img
+          \`\`\`
+          EOF
+          )"
+          gh release edit "$TAG" --draft=false
