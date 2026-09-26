@@ -39,22 +39,22 @@ in
 
     nix.settings.extra-sandbox-paths = [ cfg.directory ];
 
-    # Replaces the wrapper config programs.ccache writes: NOHASHDIR/BASEDIR so
-    # a moved $TMPDIR still hits, and a size cap.
-    nixpkgs.overlays = [
+    # Replaces programs.ccache's wrapper config (NOHASHDIR/BASEDIR so a moved
+    # $TMPDIR still hits, a size cap); mkAfter, or its overlay runs last and wins.
+    nixpkgs.overlays = lib.mkAfter [
       (_: prev: {
         ccacheWrapper = prev.ccacheWrapper.override {
           extraConfig = ''
             export CCACHE_COMPRESS=1
+            export CCACHE_SLOPPINESS=random_seed
             export CCACHE_DIR="${cfg.directory}"
             export CCACHE_UMASK=007
             export CCACHE_BASEDIR="$NIX_BUILD_TOP"
             export CCACHE_NOHASHDIR=1
             export CCACHE_MAXSIZE=10G
-            if [ ! -d "$CCACHE_DIR" ]; then
-              echo "no CCACHE_DIR ($CCACHE_DIR), is it in extra-sandbox-paths?" >&2
-              exit 1
-            fi
+            # The sandbox path only exists once this config is active, so the build
+            # that activates it has to compile uncached instead of failing.
+            [ -d "$CCACHE_DIR" ] || export CCACHE_DISABLE=1
           '';
         };
       })
