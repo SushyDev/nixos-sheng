@@ -27,7 +27,7 @@ A daily-drivable tablet on mainline Linux. Installing **wipes the device** and n
 | Suspend | ⚠️ | Deep sleep works; the power button cannot wake it yet |
 | Cameras | ⚠️ | Front and main rear work; the second rear needs libcamera support |
 | External monitors | ⚠️ | 120 Hz without DSC; a monitor's USB hub works when it prefers data over quality |
-| HDR | ❌ | |
+| HDR | ❌ | Not supported yet |
 
 ## Install
 
