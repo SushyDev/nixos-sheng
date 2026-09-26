@@ -5,7 +5,7 @@
 #
 # Usage: fastboot-flash [boot.img]
 
-readonly IMG="${1:-./result/boot.img}"
+readonly IMG="${1:-${SHENG_OUT:-./out}/boot.img}"
 
 die() {
   echo "$*" >&2

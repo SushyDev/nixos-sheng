@@ -1,0 +1,22 @@
+# Upstream material cloned into ../references/<owner>/<repo> by `refs sync`.
+# Read-only mirrors: never commit in them. One GitHub repo per line, with an
+# optional branch (the remote's default otherwise).
+
+# Kernel
+ianchb/sm8550-mainline
+code002-2/sm8550-mainline
+code002-2/sm8850-mainline
+
+# Other sheng distributions
+ianchb/debian-sheng
+Xiaomi-Pad-6S-Pro12-4-sheng/debian-sheng
+DotRedstone/nixos-sheng
+alghiffaryfa19/Linux-xiaomi-sheng
+code002-2/Xiaomi-pad-6s-pro-Linux
+code002-2/archlinux-sheng
+code002-2/steamos-sheng
+code002-2/armada-sheng
+
+# Firmware and bootloader
+ianchb/sheng-firmware
+code002-2/u-boot

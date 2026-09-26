@@ -4,26 +4,11 @@
   buildUBoot,
   zig,
   xxd,
-  android-tools,
+  mk-boot-img,
   src,
   version ? "sheng",
 }:
 
-let
-  # ABL rejects anything else. Offsets and page size come from the stock
-  # boot.img header.
-  mkbootimgArgs = [
-    "--kernel u-boot-dtb.bin"
-    "--dtb u-boot.dtb"
-    "--cmdline 'console=ttyMSM0,115200n8 console=ttyGS0,115200n8 g_serial.use_acm=1 root=PARTLABEL=userdata'"
-    "--base 0x00000000"
-    "--kernel_offset 0x00008000"
-    "--tags_offset 0x01e00000"
-    "--pagesize 4096"
-    "--header_version 2"
-    "--id"
-  ];
-in
 (buildUBoot {
   inherit src version;
 
@@ -50,7 +35,7 @@ in
     pname = "u-boot-sheng";
 
     nativeBuildInputs = old.nativeBuildInputs ++ [
-      android-tools # mkbootimg
+      mk-boot-img # shared with `uboot build`, so both produce the same layout
       xxd # CONFIG_ENV_USE_DEFAULT_ENV_TEXT_FILE embeds sheng.env via xxd
     ];
 
@@ -62,6 +47,6 @@ in
     '';
 
     postInstall = ''
-      mkbootimg ${lib.concatStringsSep " " mkbootimgArgs} -o "$out/boot.img"
+      mk-boot-img u-boot-dtb.bin u-boot.dtb "$out/boot.img"
     '';
   })

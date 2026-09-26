@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Fri, 25 Sep 2026 18:20:16 +0200
+Subject: [PATCH 1/2] usb: typec: ps5169: set the i2c client data
+
+ps5169_remove() reads the driver state back with i2c_get_clientdata(), but
+probe never stores it, so unbinding the retimer dereferences NULL.
+---
+ drivers/usb/typec/mux/ps5169.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/usb/typec/mux/ps5169.c b/drivers/usb/typec/mux/ps5169.c
+index 9fe1039..091ec23 100644
+--- a/drivers/usb/typec/mux/ps5169.c
++++ b/drivers/usb/typec/mux/ps5169.c
+@@ -272,6 +272,7 @@ static int ps5169_probe(struct i2c_client *client)
+ 		return -ENOMEM;
+ 
+ 	ps5169->client = client;
++	i2c_set_clientdata(client, ps5169);
+ 
+ 	mutex_init(&ps5169->lock);
+ 

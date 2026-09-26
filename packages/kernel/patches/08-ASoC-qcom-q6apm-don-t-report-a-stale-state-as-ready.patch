@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SushyDev <mail@sushy.dev>
+Date: Fri, 25 Sep 2026 18:20:16 +0200
+Subject: [PATCH 2/2] ASoC: qcom: q6apm: don't report a stale state as ready
+
+q6apm_get_apm_state() ignores the result of the state query and returns
+apm->state, which still holds the previous answer when the command times
+out; an allocation failure becomes a negative errno, which the bool
+q6apm_is_adsp_ready() reads as true. Either way q6prm probes against an
+ADSP that is not ready. Report not-ready on any failure so probe defers.
+---
+ sound/soc/qcom/qdsp6/q6apm.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6apm.c b/sound/soc/qcom/qdsp6/q6apm.c
+index f167b9d..d694fa7 100644
+--- a/sound/soc/qcom/qdsp6/q6apm.c
++++ b/sound/soc/qcom/qdsp6/q6apm.c
+@@ -145,9 +145,11 @@ static int q6apm_get_apm_state(struct q6apm *apm)
+ 	struct gpr_pkt *pkt __free(kfree) = audioreach_alloc_apm_cmd_pkt(0,
+ 								APM_CMD_GET_SPF_STATE, 0);
+ 	if (IS_ERR(pkt))
+-		return PTR_ERR(pkt);
++		return 0;
+ 
+-	q6apm_send_cmd_sync(apm, pkt, APM_CMD_RSP_GET_SPF_STATE);
++	/* A timeout leaves the last answer in apm->state, which may say ready. */
++	if (q6apm_send_cmd_sync(apm, pkt, APM_CMD_RSP_GET_SPF_STATE))
++		return 0;
+ 
+ 	return apm->state;
+ }

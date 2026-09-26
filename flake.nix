@@ -10,6 +10,19 @@
       url = "github:SushyDev/u-boot/xiaomi-sheng";
       flake = false;
     };
+
+    # Bump the tag to move kernels; version and modDirVersion follow the tree.
+    # Local tree: builder build nixos --local-kernel
+    kernel-src = {
+      url = "github:ianchb/sm8550-mainline/7.2.6-mac";
+      flake = false;
+    };
+
+    # Base config: debian-sheng's repo-root sm8550.config. Move with the kernel.
+    kernel-config = {
+      url = "github:ianchb/debian-sheng/60753c1fb711f79ff44aa683917c171f28784ca7";
+      flake = false;
+    };
   };
 
   outputs =
@@ -17,6 +30,8 @@
       self,
       nixpkgs,
       u-boot-src,
+      kernel-src,
+      kernel-config,
     }:
     let
       # Building for this on anything else needs a remote builder.
@@ -24,7 +39,6 @@
 
       hostSystems = [
         "aarch64-darwin"
-        "x86_64-darwin"
         "aarch64-linux"
         "x86_64-linux"
       ];
@@ -33,7 +47,7 @@
 
       pkgs = import nixpkgs {
         system = target;
-        overlays = [ (import ./overlay.nix) ];
+        overlays = [ self.overlays.default ];
         config.allowUnfree = true;
       };
 
@@ -41,103 +55,34 @@
       # flashed board reachable. Downstream configs supply their own.
       sheng = self.lib.shengSystem {
         inherit nixpkgs;
-        modules = [ ./modules/bringup.nix ];
+        modules = [
+          ./modules/bringup.nix
+          { sheng.performance.enable = true; }
+        ];
       };
 
-      mkScripts =
-        hostPkgs:
-        let
-          mk =
-            name: runtimeInputs:
-            hostPkgs.writeShellApplication {
-              inherit name runtimeInputs;
-              text = builtins.readFile (./scripts + "/${name}");
-            };
-          find-sheng = mk "find-sheng" [
-            hostPkgs.openssh
-            hostPkgs.netcat
-          ];
-
-          mkPython =
-            name: runtimeInputs:
-            hostPkgs.runCommand name
-              {
-                nativeBuildInputs = [
-                  hostPkgs.python3
-                  hostPkgs.makeWrapper
-                ];
-              }
-              ''
-                install -Dm755 ${./scripts}/${name} $out/bin/${name}
-                patchShebangs $out/bin/${name}
-                ${hostPkgs.lib.optionalString (runtimeInputs != [ ]) ''
-                  wrapProgram $out/bin/${name} \
-                    --prefix PATH : ${hostPkgs.lib.makeBinPath runtimeInputs}
-                ''}
-              '';
-
-          # Its own derivation, so read-blackbox cannot find it as a sibling.
-          exec = mkPython "exec" [ ];
-        in
-        {
-          inherit find-sheng exec;
-
-          read-blackbox = mkPython "read-blackbox" [ exec ];
-          capture-linux-dpu = mkPython "capture-linux-dpu" [ exec ];
-
-          soak = mk "soak" [
-            hostPkgs.openssh
-            hostPkgs.coreutils
-            find-sheng
-          ];
-
-          sheng-mdss-status = mk "sheng-mdss-status" [
-            hostPkgs.openssh
-            hostPkgs.coreutils
-            find-sheng
-          ];
-
-          builder = mk "builder" [
-            hostPkgs.openssh
-            hostPkgs.coreutils
-          ];
-
-          flash-uboot = mk "flash-uboot" [
-            hostPkgs.openssh
-            hostPkgs.coreutils
-            find-sheng
-          ];
-
-          flash-rootfs = mk "flash-rootfs" [
-            hostPkgs.android-tools
-            hostPkgs.coreutils
-          ];
-
-          fastboot-flash = mk "fastboot-flash" [
-            hostPkgs.android-tools
-            hostPkgs.coreutils
-            hostPkgs.gnugrep
-          ];
-        };
+      scriptsFor = hostPkgs: import ./scripts { pkgs = hostPkgs; };
     in
     {
       lib = import ./lib { inherit self; };
 
       nixosModules = {
         default = ./modules;
-        firmware = ./modules/firmware.nix;
 
         # Opt-in host policy, not a driver. NOT secure -- see its header.
         bringup = ./modules/bringup.nix;
       };
 
-      overlays.default = import ./overlay.nix;
+      overlays.default = import ./overlay.nix {
+        kernelSrc = kernel-src;
+        kernelConfig = kernel-config;
+      };
 
       nixosConfigurations.sheng = sheng;
 
       packages = forHosts (
         hostPkgs:
-        mkScripts hostPkgs
+        (scriptsFor hostPkgs).packages
         // nixpkgs.lib.optionalAttrs (hostPkgs.stdenv.hostPlatform.system == target) (
           {
             default = sheng.config.system.build.shengImage;
@@ -145,14 +90,16 @@
             nixos = sheng.config.system.build.shengImage;
 
             u-boot = pkgs.callPackage ./packages/u-boot {
+              inherit ((scriptsFor pkgs).packages) mk-boot-img;
+              zig = pkgs.zig_0_16; # same minor as the devenv's `uboot build`
               src = u-boot-src;
               version = u-boot-src.shortRev or "dirty";
             };
 
             kernel = pkgs.shengKernel;
-            mdss-test-module = pkgs.callPackage ./packages/kernel/mdss-test-module { };
           }
-          // pkgs.shengPackages
+          # callPackage's override/overrideDerivation are not packages.
+          // nixpkgs.lib.filterAttrs (_: nixpkgs.lib.isDerivation) pkgs.shengPackages
         )
       );
 
@@ -161,9 +108,9 @@
         builtins.mapAttrs (_: script: {
           type = "app";
           program = nixpkgs.lib.getExe script;
-        }) (mkScripts hostPkgs)
+        }) (scriptsFor hostPkgs).packages
       );
 
-      formatter = forHosts (hostPkgs: hostPkgs.nixfmt-rfc-style);
+      formatter = forHosts (hostPkgs: hostPkgs.nixfmt);
     };
 }

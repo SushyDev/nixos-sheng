@@ -1,12 +1,23 @@
-result
-result-*
 .DS_Store
-.devenv
-.devenv-build
-docker/authorized_keys
+
+# build outputs: nix result links, and artifacts copied out by builder/uboot
 result
 result-*
+out/
+
+# devenv / direnv
+.devenv/
+.devenv.flake.nix
+devenv.local.nix
+devenv.local.yaml
+.direnv/
+
+# leftovers of the pre-devenv workflow
+.devenv-build
 .sheng-ip
-result-custom
+
+__pycache__/
+
+# local assistant state
 .claude/
 CLAUDE.md

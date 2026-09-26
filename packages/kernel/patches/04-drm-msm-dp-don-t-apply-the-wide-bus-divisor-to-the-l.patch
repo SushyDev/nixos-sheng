@@ -21,33 +21,32 @@ offered on a link providing 17.28 Gbps.
 YUV 4:2:0 genuinely halves the transferred data, so it keeps the divisor
 for the bandwidth calculation; only the wide bus term is dropped.
 ---
- drivers/gpu/drm/msm/dp/dp_display.c | 9 +++++++--
- 1 file changed, 7 insertions(+), 2 deletions(-)
+ drivers/gpu/drm/msm/dp/dp_display.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/gpu/drm/msm/dp/dp_display.c b/drivers/gpu/drm/msm/dp/dp_display.c
-index dc31572..46a5ce1 100644
+index b9612af..bb58ac5 100644
 --- a/drivers/gpu/drm/msm/dp/dp_display.c
 +++ b/drivers/gpu/drm/msm/dp/dp_display.c
-@@ -700,6 +700,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
- 	struct msm_dp *dp;
+@@ -701,6 +701,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
  	int mode_pclk_khz = mode->clock;
+ 	bool is_yuv_420;
  	int mode_pclk_orig = mode->clock;
 +	int link_pclk_khz = mode->clock;
  
  	dp = to_dp_bridge(bridge)->msm_dp_display;
  
-@@ -716,6 +717,10 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
- 	     msm_dp_wide_bus_available(dp))
+@@ -724,6 +725,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	if (is_yuv_420 || msm_dp_display->wide_bus_supported)
  		mode_pclk_khz /= 2;
  
-+	if (drm_mode_is_420_only(&dp->connector->display_info, mode) &&
-+	    msm_dp_display->panel->vsc_sdp_supported)
++	if (is_yuv_420)
 +		link_pclk_khz /= 2;
 +
  	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
  		return MODE_CLOCK_HIGH;
  
-@@ -728,9 +733,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+@@ -736,9 +740,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
  		mode_bpp = 8;
  	else
  		mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,

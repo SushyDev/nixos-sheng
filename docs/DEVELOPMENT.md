@@ -7,62 +7,150 @@ If you are just installing, you want [README.md](README.md) instead.
 
 ---
 
+## The workspace
+
+Development happens in a workspace directory that holds this repository next to its
+siblings. One devenv shell, defined here, serves all of them:
+
+```
+sheng-development/
+├── .envrc           `source_env nixos`, so every subdirectory gets the shell
+├── sheng-devkey     SSH key the device trusts (see below)
+├── nixos/           this repository; devenv.nix lives here
+├── u-boot/          SushyDev/u-boot, branch xiaomi-sheng
+├── kernel/          optional sm8550-mainline checkout, for --local-kernel
+└── references/      read-only upstream clones, from dev/references.txt
+```
+
+From scratch:
+
+```sh
+mkdir sheng-development && cd sheng-development
+git clone git@github.com:SushyDev/nixos-sheng.git nixos
+cd nixos && devenv shell     # or: direnv allow
+workspace-init               # clones u-boot, installs ../.envrc, syncs references
+sheng-help                   # the command list
+```
+
+The shell's toolchain (Zig, the aarch64 cross GCC) comes from `flake.lock`'s nixpkgs,
+not devenv's, so the fast local U-Boot build and `nix build .#u-boot` compile with the
+same Zig. Zig breaks its language between minor versions, so this matters.
+
+### The two loops
+
+**U-Boot**, natively on the host, incremental, seconds per iteration:
+
+```sh
+uboot build          # ../u-boot/.output -> nixos/out/boot.img
+flash-uboot          # over SSH to a running device, both slots, reboot
+# or: fastboot-flash, from fastboot mode
+```
+
+`uboot build` prints the image size as a delta against the previous build (ABL's
+budget is roughly 1 MiB) and warns when `sheng.b=` was not bumped.
+`uboot build --debug` builds into `.output-debug` with
+`CONFIG_VIDEO_SHENG_MDSS_DEBUG=y`, without touching the defconfig.
+`uboot menuconfig` / `uboot savedefconfig` round-trip the defconfig.
+
+**NixOS**, in the aarch64-linux Docker builder, whose `/nix` volume keeps the kernel:
+
+```sh
+builder fetch nixos                  # -> nixos/out/sheng-rootfs.sparse.img
+builder fetch u-boot --local-uboot   # the reproducible U-Boot, from ../u-boot as on disk
+builder fetch nixos --local-kernel   # kernel from ../kernel, committed state of its branch
+builder shell                        # a shell inside, in this directory
+```
+
+The builder mounts the whole workspace read-only at the host's own path, so flake
+paths and `--override-input` mean the same thing inside and out.
+
+`--local-kernel` reads the checkout's current branch from git objects rather than the
+worktree: on macOS's case-insensitive filesystem the kernel's netfilter header pairs
+(`xt_CONNMARK.h`/`xt_connmark.h`) collide, so a worktree copy would be silently wrong. Commit first.
+
+### The kernel
+
+The kernel source and its base config are flake inputs, `kernel-src`
+(`github:ianchb/sm8550-mainline/<tag>`) and `kernel-config` (debian-sheng at a commit).
+`version` and `modDirVersion` are read from the tree's `Makefile` and the config's
+`CONFIG_LOCALVERSION`, so moving kernels is editing those two URLs, `nix flake lock`,
+and checking that `packages/kernel/patches/` still applies.
+
+### References
+
+`refs sync` clones or fast-forwards everything in `dev/references.txt` into
+`../references/<owner>/<repo>` and prints the new commits. `refs status` shows where each
+one is. Add a line to track another repository. Non-git material (stock firmware
+images, GPT dumps) goes in `../references/vendor/`, by hand.
+
+---
+
 ## Repository layout
 
 ```
 nixos/
 ├── flake.nix        outputs: packages, apps, nixosModules, overlays, lib
-├── overlay.nix      adds shengKernel + shengPackages to nixpkgs
+├── overlay.nix      adds shengKernel, shengPackages and shengSddm to nixpkgs
 ├── lib/             shengSystem — the entry point for downstream flakes
-├── modules/         the NixOS modules (see table below)
+├── modules/         the driver layer, options under `sheng.*` (see table below)
+│   ├── hardware/    the device itself, plus vendor daemons per subsystem
+│   ├── boot/        extlinux + U-Boot menu, rootfs image, A/B slot, store registration
+│   ├── system/      opt-in or self-gating extras: greeter, ccache, performance, serial
+│   └── bringup.nix  host policy for the reference image; not imported by default.nix
 ├── packages/
-│   ├── u-boot/      buildUBoot + mkbootimg -> boot.img
-│   ├── kernel/      linuxManualConfig, plus mdss-test-module/
-│   └── firmware/    one directory per vendor package
-├── scripts/         everything under `nix run .#<name>`
+│   ├── u-boot/      buildUBoot + mk-boot-img -> boot.img
+│   ├── kernel/      linuxManualConfig; every file in patches/ is applied, in order
+│   └── vendor/      one directory per vendor userspace package
+├── scripts/         host tools: `nix run .#<name>`, and on the devenv shell's PATH
+├── dev/             references.txt, the workspace .envrc template
+├── devenv.nix       the workspace shell
 └── docker/          the aarch64 build container
 ```
 
-| Module | Does |
-|---|---|
-| `hardware.nix` | Kernel, device tree, kernel params, root filesystem, firmware. Unconditional, and hardware only — no users, no daemons, no hostname. |
-| `image.nix` | `system.build.shengImage` — the ext4 + sparse rootfs images, and `sheng.rootfs.etcNixosSource`. |
-| `extlinux.nix` | A fork of `generic-extlinux-compatible` that also writes U-Boot's `sheng-bootmenu.env`. |
-| `firmware.nix` | `services.shengFirmware.enable` — the vendor userspace. |
-| `boot-slot.nix` | `services.shengBootSlot.enable` — `qbootctl -m`. |
-| `nix-bootstrap.nix` | `services.shengNixBootstrap.enable` — first-boot store registration. |
-| `serial-console.nix` | `services.shengSerialConsole.enable` — the ttyGS0 gadget console. Off by default. |
-| `audio.nix` | `sheng.audio.enable` — the HiFi UCM verb, plus WirePlumber rules if the host runs WirePlumber. |
-| `camera.nix` | `sheng.camera.enable` / `.qtGstreamerBackend` — the libcamera monitor, and optionally Qt's GStreamer backend. |
-| `greeter.nix` | `sheng.greeter.enable` — the SDDM fixes, each gated on the host having enabled SDDM (and KWin, and fprintd). |
-| `build-cache.nix` | `sheng.buildCache.enable` — ccache for shengKernel builds on the device. Off by default. |
-| `power.nix` | Pins `SuspendState=mem` so systemd never falls back to the s2idle that hangs this device. |
-| `bringup.nix` | **Not imported by `default.nix`.** Root password, autologin, sshd, NetworkManager, mDNS — the host half of this repo's own reference image. |
+| Module | Switch | Does |
+|---|---|---|
+| `hardware/default.nix` | — | Kernel, device tree, kernel params, root filesystem, firmware. Hardware only — no users, no daemons, no hostname. |
+| `hardware/audio.nix` | `sheng.audio.enable` | The HiFi UCM verb, bound to the card's device unit; speaker channels follow orientation; WirePlumber rules if the host runs WirePlumber. |
+| `hardware/camera.nix` | `sheng.camera.enable` / `.qtGstreamerBackend` | The libcamera monitor, and optionally Qt's GStreamer backend. |
+| `hardware/sensors.nix` | `sheng.vendor.enable` | fastrpc sensor PD (gated on SSC answering), libssc, iio-sensor-proxy. |
+| `hardware/qtee.nix` | `sheng.vendor.enable` | qteesupplicant, fingerprint via fprintd, keyboard cover authentication. |
+| `hardware/input.nix` | `sheng.vendor.enable` | Touch (THP), pen status, keyboard fold-angle and mic-mute helpers. |
+| `hardware/power.nix` | — / `sheng.vendor.enable` | Pins `SuspendState=mem` (s2idle hangs this device); MiPPS 120 W authentication and charger-mode screen. |
+| `hardware/wireless.nix` | `sheng.factoryAddresses.enable` | Factory Wi-Fi/Bluetooth addresses from `persist`, mounted read-only. |
+| `boot/extlinux.nix` | — | Fork of `generic-extlinux-compatible` that also writes U-Boot's `sheng-bootmenu.env`, one entry per generation and specialisation (script: `install-boot.sh`). |
+| `boot/image.nix` | — | `system.build.shengImage`: ext4 + Android sparse rootfs, and `sheng.rootfs.etcNixosSource`. |
+| `boot/slot.nix` | `sheng.boot.markSuccessful` | `qbootctl -m` once up. |
+| `boot/nix-bootstrap.nix` | `sheng.boot.registerStore` | First-boot store registration. |
+| `system/greeter.nix` | `sheng.greeter.enable` | The SDDM fixes, each gated on the host having enabled SDDM (and KWin, and fprintd). |
+| `system/build-cache.nix` | `sheng.buildCache.enable` (off) | ccache for shengKernel builds on the device. |
+| `system/performance.nix` | `sheng.performance.enable` (off; on in the reference image) | zram, systemd-oomd, a deprioritised nix-daemon. |
+| `system/serial-console.nix` | `sheng.serialConsole.enable` (off) | The ttyGS0 gadget console. |
+| `bringup.nix` | **not imported by `default.nix`** | Root password, autologin, sshd, NetworkManager, mDNS — the host half of this repo's own reference image. |
 
 The split is the point: `default.nix` is a driver layer and configures nothing about how
 the machine is used. Workarounds that touch user-visible services are gated on the host
 having chosen the thing they fix — `greeter.nix` contributes nothing without SDDM, the
-WirePlumber rules nothing without WirePlumber, and `overlay.nix` exposes the patched SDDM
-as `shengSddm` rather than replacing `qt6Packages.sddm-unwrapped` for everyone.
+WirePlumber rules nothing without WirePlumber, the Bluetooth address nothing without
+Bluetooth, and `overlay.nix` exposes the patched SDDM as `shengSddm` rather than replacing
+`qt6Packages.sddm-unwrapped` for everyone.
+
+The old `services.sheng*` option names still work, with a deprecation warning.
 
 **U-Boot lives in a different repository.** It is pinned as the non-flake input
-`u-boot-src` (`github:SushyDev/u-boot`, branch `xiaomi-sheng`). To build against a local
-checkout:
+`u-boot-src` (`github:SushyDev/u-boot`, branch `xiaomi-sheng`); `uboot build` and
+`builder fetch u-boot --local-uboot` use the workspace's `../u-boot` instead.
 
-```sh
-nix build .#u-boot --override-input u-boot-src ../u-boot
-```
-
-The `disable-dp-altmode` overlay in `hardware.nix` is not optional: `mdss_dp0`
-`EPROBE_DEFER`s forever on the Type-C retimer and takes the whole msm KMS aggregate down
-with it.
+`CONFIG_TYPEC_MUX_PS5169=y` in the kernel fragment is not optional: without the retimer
+`mdss_dp0` `EPROBE_DEFER`s forever and takes the whole msm KMS aggregate down with it. The
+config build fails if any line of the fragment does not survive `olddefconfig`.
 
 ---
 
 ## Getting a shell on the device
 
-Every script locates the project by walking up to four parent directories looking for a
-file named **`sheng-devkey`** — an SSH private key whose public half is authorised on the
+In the devenv shell `SHENG_KEY` points at the workspace's **`sheng-devkey`**. Outside it,
+every script locates the project by walking up to four parent directories looking for a
+file named `sheng-devkey` — an SSH private key whose public half is authorised on the
 device. Put it at the repository root, or point `SHENG_KEY` somewhere else. The discovered
 root is also where the IP cache lands (`SHENG_IP_CACHE`, default `.sheng-ip`).
 
@@ -87,25 +175,23 @@ The sweep is macOS-specific (`ipconfig`), falling back to `192.168.2.1`.
 
 ### Over the USB serial gadget
 
-> **This is opt-in.** `services.shengSerialConsole.enable` defaults to `false`, because
+> **This is opt-in.** `sheng.serialConsole.enable` defaults to `false`, because
 > binding the g_serial gadget to the UDC holds the Type-C port in peripheral mode and kills
 > USB host mode with it. An image built without it has no `ttyGS0` at all — `exec`,
 > `read-blackbox` and `capture-linux-dpu` all depend on this, so a debugging image wants:
 >
 > ```nix
-> services.shengSerialConsole.enable = true;
+> sheng.serialConsole.enable = true;
 > ```
 >
 > On a stock image the equivalent way in is a USB keyboard on tty1, which autologins.
 
-With it enabled, `ttyGS0` has root autologin. `tio` is an external prerequisite — it is not
-packaged here:
+With it enabled, `ttyGS0` has root autologin. In the devenv shell, `serial` starts the
+`tio` bridge (first `/dev/cu.usbmodem*`, or pass the device):
 
 ```sh
-rm -f /tmp/nixos-socket
-nix shell nixpkgs#tio -c tio -m INLCRNL -S unix:/tmp/nixos-socket /dev/cu.usbmodem101 &
-
-nix run .#exec -- 'df -h /'
+serial &
+exec 'df -h /'
 ```
 
 > **Warning** — remove a stale `/tmp/nixos-socket` first. The socket outlives the `tio`
@@ -129,10 +215,16 @@ All are `nix run .#<name>`, or run directly out of `nixos/scripts/`.
 | `sheng-mdss-status` | `sheng-mdss-status` | SSH |
 | `read-blackbox` | `read-blackbox [out.txt]` | `exec` bridge |
 | `capture-linux-dpu` | `capture-linux-dpu [blackbox.txt]` | `exec` bridge |
-| `builder` | `builder [up\|down\|status\|build <attr>\|fetch <attr> [dir]]` | docker |
+| `builder` | `builder [up\|down\|status\|shell\|run <cmd>\|build\|fetch <attr> [--local-uboot] [--local-kernel]]` | docker |
+| `uboot` | `uboot [build [--debug]\|menuconfig\|savedefconfig\|clean]` | a U-Boot checkout |
+| `mk-boot-img` | `mk-boot-img <u-boot-dtb.bin> <u-boot.dtb> <boot.img>` | — |
+| `refs` | `refs [sync\|status]` | network |
+| `serial` | `serial [/dev/cu.usbmodemN]` (devenv only) | USB |
 
-Both `[boot.img]` defaults are `./result/boot.img`; `flash-rootfs` defaults to
-`./result/sheng-rootfs.sparse.img` — the paths `builder fetch` writes to.
+Both `[boot.img]` defaults are `$SHENG_OUT/boot.img`; `flash-rootfs` defaults to
+`$SHENG_OUT/sheng-rootfs.sparse.img`. `SHENG_OUT` is `nixos/out` in the devenv shell and
+`./out` outside it — where both `uboot build` and `builder fetch` put their artifacts, so
+the last thing built is what gets flashed.
 
 ### `flash-uboot` — reflash without touching a button
 
@@ -237,8 +329,8 @@ cost of ~1 s of extra boot delay and many MMIO reads of live display blocks on e
 On the Zig side it is compiled out at comptime through a Kconfig-generated `config` module
 (`scripts/Makefile.zig`), because `zig build-obj` has no `-D` equivalent.
 
-There is **no Nix knob** — `packages/u-boot/default.nix` exposes no `extraConfig`. Edit the
-defconfig in a local U-Boot checkout and build with `--override-input u-boot-src ../u-boot`.
+`uboot build --debug` turns it on for a local build without editing the defconfig. The
+Nix package has no knob.
 
 > **Warning — this build rots.** What ships is `=n`, so the `=y` build is never exercised
 > by a normal build; it had been broken for three commits before anyone noticed. After
@@ -355,14 +447,9 @@ so the numbers confirm a cut took effect and only the *screen* needs a human to 
 
 ## Known issues
 
-- `docker/authorized_keys` is a leftover of an earlier sshd-based builder design; nothing
-  in the current `Dockerfile` or `compose.yaml` uses it.
-- `bringup.nix` ships root autologin and a baked root password (`password`), and
-  `hardware.nix` leaves the firewall off because this kernel has no netfilter match
-  modules. Bring-up defaults — see [README.md](README.md#first-boot).
-- The `disable-dp-altmode` note below the module table describes an overlay `hardware.nix`
-  does not actually apply; the sound node's dai-links reference DisplayPort Playback, and
-  removing it fails the whole card.
-- The U-Boot repository's `devenv.nix` `uboot:pack` task uses an older packing scheme
-  (gzipped `u-boot-nodtb.bin` with an appended DTB) than `build-uboot.sh` and the Nix
-  derivation, which both use `u-boot-dtb.bin`. Prefer the Nix build.
+- `bringup.nix` ships root autologin and a baked root password (`password`) — see
+  [README.md](README.md#first-boot).
+- The firewall is `mkDefault false`. The kernel now has `nft_fib_inet` and the modules
+  select the nftables backend, so it should load; turn it on once that is confirmed.
+- Not yet validated on hardware (September 2026): kernel 7.2.6-mac with patches 07/08,
+  the factory Wi-Fi/Bluetooth addresses, and the SSC start gate.

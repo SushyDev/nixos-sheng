@@ -1,0 +1,12 @@
+[Unit]
+Description=sensorspd aDSP RPC daemon
+Before=iio-sensor-proxy.service
+
+[Service]
+Type=exec
+ExecStart=/run/current-system/sw/bin/adsprpcd sensorspd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=iio-sensor-proxy.service

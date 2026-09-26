@@ -1,12 +1,46 @@
 {
   "nodes": {
+    "kernel-config": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789638571,
+        "narHash": "sha256-5u6IKBLok0IE6sRSWMjzdJ1+bEDodurRYXfyWHy4xrg=",
+        "owner": "ianchb",
+        "repo": "debian-sheng",
+        "rev": "60753c1fb711f79ff44aa683917c171f28784ca7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ianchb",
+        "repo": "debian-sheng",
+        "rev": "60753c1fb711f79ff44aa683917c171f28784ca7",
+        "type": "github"
+      }
+    },
+    "kernel-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789562726,
+        "narHash": "sha256-cll0sZv3fheM9PeleaK8lmdJQhj/rumMsVDwQ0842gM=",
+        "owner": "ianchb",
+        "repo": "sm8550-mainline",
+        "rev": "42f3b40c702abbc37c3a04c95af008cd283aeaf3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ianchb",
+        "ref": "7.2.6-mac",
+        "repo": "sm8550-mainline",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1787001381,
-        "narHash": "sha256-Ue1Yo8gfHdD4TMtNewhA4tkSYeFqXThju0nCyJc3ALo=",
+        "lastModified": 1790185690,
+        "narHash": "sha256-xJ+X4hBtOcAFGBOe5nAMyMUeF9foJBmIOu3NjBqBycU=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "ec2d622de0773551768cf98f3fc50cbcc003b9c5",
+        "rev": "4975466d324710c576dc11ad614684e6bd8cad8e",
         "type": "github"
       },
       "original": {
@@ -18,6 +52,8 @@
     },
     "root": {
       "inputs": {
+        "kernel-config": "kernel-config",
+        "kernel-src": "kernel-src",
         "nixpkgs": "nixpkgs",
         "u-boot-src": "u-boot-src"
       }
@@ -25,11 +61,11 @@
     "u-boot-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1787446235,
-        "narHash": "sha256-GPPQTTfnyKbtRQjSb34SpvBdaqV82XXM8IhLxMJodws=",
+        "lastModified": 1787502608,
+        "narHash": "sha256-Y1TQnXczQivmn05qCRvHygjinBy/I553u//aJCHb7Gc=",
         "owner": "SushyDev",
         "repo": "u-boot",
-        "rev": "2fa422313f6ab5bd9706d5c339f22ec31434a55e",
+        "rev": "7025b792e2884c5fb4747d891e30002ea029048a",
         "type": "github"
       },
       "original": {

@@ -1,6 +1,11 @@
+# Kernel sources come from the flake's inputs; overlays.default is this, applied.
+{ kernelSrc, kernelConfig }:
 final: prev: {
-  shengKernel = final.callPackage ./packages/kernel { };
-  shengPackages = final.callPackage ./packages/firmware { };
+  shengKernel = final.callPackage ./packages/kernel {
+    src = kernelSrc;
+    baseConfig = "${kernelConfig}/sm8550.config";
+  };
+  shengPackages = final.callPackage ./packages/vendor { };
 
   # SDDM with the sheng patches (wallpaper geometry on rotation, fingerprint
   # beside the password prompt). Its own attribute rather than a global

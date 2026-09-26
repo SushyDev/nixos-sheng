@@ -5,7 +5,7 @@
 #
 # Usage: flash-rootfs [sheng-rootfs.sparse.img]
 
-readonly IMG="${1:-./result/sheng-rootfs.sparse.img}"
+readonly IMG="${1:-${SHENG_OUT:-./out}/sheng-rootfs.sparse.img}"
 readonly SPARSE_MAGIC=3aff26ed # offset 0
 readonly EXT4_MAGIC=53ef       # offset 0x438
 

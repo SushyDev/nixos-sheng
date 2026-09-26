@@ -1,0 +1,81 @@
+# Keep the read-only reference clones in ../references up to date.
+#
+# Usage:
+#   refs sync     clone what is missing, fast-forward the rest, show what's new
+#   refs status   branch, last commit and local changes per clone
+#
+# The list is dev/references.txt ($SHENG_REFS_LIST); clones go to
+# $SHENG_WORKSPACE/references (default ../references).
+
+readonly LIST="${SHENG_REFS_LIST:-./dev/references.txt}"
+readonly DEST="${SHENG_WORKSPACE:-..}/references"
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+[ -f "$LIST" ] || die "no reference list at $LIST"
+
+entries() {
+  grep -v '^[[:space:]]*\(#\|$\)' "$LIST"
+}
+
+sync_one() {
+  local -r repo="$1" branch="${2:-}" dir="$DEST/$1"
+
+  if [ ! -d "$dir/.git" ]; then
+    # Blobless: full history for `git log`, file contents fetched on demand.
+    git clone -q --filter=blob:none ${branch:+-b "$branch"} "https://github.com/$repo" "$dir" ||
+      { echo "$repo: clone failed"; return; }
+    echo "$repo: cloned ($(git -C "$dir" log -1 --format='%h %cs'))"
+    return
+  fi
+
+  local -r before="$(git -C "$dir" rev-parse HEAD)"
+  git -C "$dir" fetch -q --all --tags --prune || { echo "$repo: fetch failed"; return; }
+  # Kernel trees always look dirty on a case-insensitive filesystem, so no
+  # clean-tree gate: the merge itself refuses to clobber a real edit.
+  git -C "$dir" merge -q --ff-only '@{u}' 2>/dev/null || { echo "$repo: cannot fast-forward"; return; }
+
+  local -r n="$(git -C "$dir" rev-list --count "$before..HEAD")"
+  if [ "$n" = 0 ]; then
+    echo "$repo: up to date"
+  else
+    echo "$repo: $n new commit(s)"
+    git -C "$dir" log --format='    %h %cs %s' -15 "$before..HEAD"
+  fi
+}
+
+sync() {
+  mkdir -p "$DEST"
+  local repo branch
+  # Sequential output, parallel fetches: each writes its own log.
+  local -r tmp="$(mktemp -d)"
+  while read -r repo branch; do
+    sync_one "$repo" "$branch" >"$tmp/${repo//\//__}" 2>&1 &
+  done < <(entries)
+  wait
+  cat "$tmp"/*
+  rm -rf "$tmp"
+}
+
+status() {
+  local repo _ dir
+  while read -r repo _; do
+    dir="$DEST/$repo"
+    if [ -d "$dir/.git" ]; then
+      printf '%-45s %-16s %s%s\n' "$repo" "$(git -C "$dir" branch --show-current)" \
+        "$(git -C "$dir" log -1 --format='%cs %h')" \
+        "$([ -z "$(git -C "$dir" status --porcelain)" ] || echo ' (dirty)')"
+    else
+      printf '%-45s missing -- run: refs sync\n' "$repo"
+    fi
+  done < <(entries)
+}
+
+case "${1:-status}" in
+  sync) sync ;;
+  status) status ;;
+  *) die "usage: refs [sync|status]" ;;
+esac

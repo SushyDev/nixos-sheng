@@ -20,7 +20,7 @@
 
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [ (import ../overlay.nix) ] ++ overlays;
+        overlays = [ self.overlays.default ] ++ overlays;
         # QTEE and the firmware blobs are proprietary.
         config.allowUnfree = true;
       };

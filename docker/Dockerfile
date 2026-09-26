@@ -24,6 +24,10 @@ RUN printf '%s\n' \
       'compress-build-log = false' \
     >> /etc/nix/nix.conf
 
+# Linux bind mounts keep the host's uid, so libgit2 refuses to open /workspace
+# as root ("repository path is not owned by current user").
+RUN printf '[safe]\n\tdirectory = *\n' >/etc/gitconfig
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

@@ -22,7 +22,7 @@ and 3440x1440@120 (16.77 Gbps) was offered against 8.64 Gbps.
  1 file changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/gpu/drm/msm/dp/dp_display.c b/drivers/gpu/drm/msm/dp/dp_display.c
-index 46a5ce1..d11c502 100644
+index bb58ac5..cba3aae 100644
 --- a/drivers/gpu/drm/msm/dp/dp_display.c
 +++ b/drivers/gpu/drm/msm/dp/dp_display.c
 @@ -697,6 +697,7 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
@@ -32,8 +32,8 @@ index 46a5ce1..d11c502 100644
 +	u32 num_lanes;
  	struct msm_dp *dp;
  	int mode_pclk_khz = mode->clock;
- 	int mode_pclk_orig = mode->clock;
-@@ -736,7 +737,11 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	bool is_yuv_420;
+@@ -743,7 +744,11 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
  					mode_bpp, link_pclk_khz);
  
  	mode_rate_khz = link_pclk_khz * mode_bpp;

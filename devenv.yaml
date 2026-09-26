@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+# Only devenv's own plumbing uses this nixpkgs. The tools in the shell come
+# from flake.lock's, so they match what `nix build` uses -- see devenv.nix.
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling

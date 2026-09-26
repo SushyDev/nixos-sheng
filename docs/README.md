@@ -82,14 +82,15 @@ below follows from that.
 
 - **A/B slot marking.** ABL keeps slot state in GPT attribute bits 48–55 and decrements
   the retry counter on every handoff; plain Linux never sets the "successful" bit, so the
-  device eventually refuses to boot. `modules/boot-slot.nix` runs `qbootctl -m` after
+  device eventually refuses to boot. `modules/boot/slot.nix` runs `qbootctl -m` after
   `multi-user.target`.
 
 ### System
 
 Vendor userspace works — sensors, fingerprint + QTEE, touch host processing, pen status,
 keyboard helper, 120 W charging authentication, ALSA UCM — behind the single switch
-`services.shengFirmware.enable`. See [Firmware](#firmware).
+`sheng.vendor.enable`. Wi-Fi and Bluetooth use the tablet's factory addresses, read from
+Android's `persist` partition (mounted read-only). See [Firmware](#firmware).
 
 ### Generic U-Boot bugs fixed along the way
 
@@ -146,8 +147,8 @@ Two artifacts come out: **`boot.img`** (U-Boot, flashed to the boot partitions) 
 git clone https://github.com/SushyDev/nixos-sheng && cd nixos-sheng
 
 nix run .#builder -- up                 # start the aarch64 build container
-nix run .#builder -- fetch u-boot       # -> ./result/boot.img
-nix run .#builder -- fetch nixos        # -> ./result/sheng-rootfs.sparse.img
+nix run .#builder -- fetch u-boot       # -> ./out/boot.img
+nix run .#builder -- fetch nixos        # -> ./out/sheng-rootfs.sparse.img
 ```
 
 | Command | What it does |
@@ -156,14 +157,22 @@ nix run .#builder -- fetch nixos        # -> ./result/sheng-rootfs.sparse.img
 | `builder down` | Stops it |
 | `builder status` | `compose ps`, the container's `nix --version`, and the store path count |
 | `builder build <attr>` | Builds `#packages.aarch64-linux.<attr>` inside the container and prints its store path |
-| `builder fetch <attr> [dir]` | Builds, then streams the result out into `[dir]` (default `./result`) |
+| `builder fetch <attr>` | Builds, then streams the result out into `$SHENG_OUT` (default `./out`) |
+| `builder shell` / `builder run <cmd>` | A shell, or one command, inside the container in the flake directory |
+
+For development — local U-Boot and kernel trees, the fast U-Boot loop — see
+[DEVELOPMENT.md](DEVELOPMENT.md#the-workspace).
 
 > **Notes**
 > - `docker` must be on your PATH; the script does not vendor it.
-> - The named `nix-store` volume is what keeps a `docker rm` from recompiling the kernel,
+> - The `docker_nix-store` volume is what keeps a `docker rm` from recompiling the kernel,
 >   which is in no binary cache. Do not delete it casually.
-> - The flake is bind-mounted read-only at `/workspace`; `SHENG_DOCKER_DIR` overrides the
+> - The checkout's parent directory is bind-mounted read-only at its own host path, so
+>   sibling checkouts (`../u-boot`) resolve inside too. `SHENG_DOCKER_DIR` overrides the
 >   compose directory (default `./docker`).
+> - On Linux hosts that mount keeps your uid, so libgit2 sees a checkout that root does
+>   not own. The image and `builder` both mark it safe, so a `repository path ... is not
+>   owned by current user` error means the container predates that.
 > - `fetch` uses `tar` rather than `docker cp`, because store paths are read-only and
 >   `docker cp` recreates those modes as it copies.
 
@@ -237,8 +246,8 @@ The scripted equivalents, which validate the images first and refuse to write an
 but their hardcoded partitions:
 
 ```sh
-nix run .#fastboot-flash    # boot_a + boot_b from ./result/boot.img
-nix run .#flash-rootfs      # userdata from ./result/sheng-rootfs.sparse.img
+nix run .#fastboot-flash    # boot_a + boot_b from ./out/boot.img
+nix run .#flash-rootfs      # userdata from ./out/sheng-rootfs.sparse.img
 ```
 
 > **Note** — `flash-rootfs` does erase `userdata` for you, for the reason above, and asks
@@ -247,7 +256,7 @@ nix run .#flash-rootfs      # userdata from ./result/sheng-rootfs.sparse.img
 
 > **If the device boots into fastboot on its own and stays there**, the A/B retry counter
 > ran out. Recover with `fastboot set_active b && fastboot reboot`. Once NixOS is up,
-> `services.shengBootSlot.enable` (on by default) stops it from happening again.
+> `sheng.boot.markSuccessful` (on by default) stops it from happening again.
 
 ---
 
@@ -256,9 +265,8 @@ nix run .#flash-rootfs      # userdata from ./result/sheng-rootfs.sparse.img
 > **Important — these are bring-up defaults, not safe ones.**
 > The image this repo builds (`nix build .#nixos`) includes `nixosModules.bringup`, which
 > ships **root autologin** on tty1 and both serial consoles and a **baked root password
-> (`password`)**; `networking.firewall.enable` is `false` because this kernel cannot load
-> the default ruleset. Change all three before the device is on a network you do not
-> control.
+> (`password`)**, with SSH open and the firewall off. Change the password before the
+> device is on a network you do not control.
 >
 > None of that comes from `nixosModules.default`. A system you build from this flake as an
 > input gets the drivers only, and whatever login you configure yourself — see
@@ -270,7 +278,7 @@ the Type-C port (a hub works) and tty1 autologins to root. From there, join a ne
 install your key.
 
 > **Note** — the USB serial gadget console is **off by default**
-> (`services.shengSerialConsole.enable`). Binding a gadget driver to the UDC pins the port
+> (`sheng.serialConsole.enable`). Binding a gadget driver to the UDC pins the port
 > in peripheral mode, which is exactly what stops hubs, keyboards and DisplayPort alt mode
 > from working. Turn it on only while debugging — see
 > [DEVELOPMENT.md](DEVELOPMENT.md#getting-a-shell-on-the-device).
@@ -310,7 +318,7 @@ The options worth setting in `./hosts/sheng.nix`:
 | Option | Default | Meaning |
 |---|---|---|
 | `sheng.rootfs.partlabel` | `"userdata"` | GPT label to install onto. Shared by the root filesystem, the kernel's `root=` and the image builder. |
-| `sheng.rootfs.imageSize` | `null` | Size to grow the image to; `null` auto-sizes to contents. Leave it `null` — a fixed size makes `resize2fs` write block groups the kernel later rejects, which kills `growfs` too. |
+| `sheng.rootfs.imageSize` | `null` | Fixed size to grow the image to; `null` auto-sizes to contents. Leave it `null`: `resize2fs` writes block groups whose bitmap checksums the kernel rejects, which then blocks `growfs`. |
 | `sheng.rootfs.keepRawImage` | `false` | Also emit the raw ext4 image beside the sparse one. Costs `imageSize` of disk per build for a file nothing reads; turn it on to loopback-mount the filesystem. |
 | `sheng.rootfs.etcNixosSource` | `null` | Flake source to copy into `/etc/nixos` inside the image, so the device can `nixos-rebuild` itself with nothing attached. Set it to `inputs.self` to ship *your* configuration; `null` ships no `/etc/nixos` at all. |
 | `sheng.boot.configurationLimit` | `10` | Generations offered in U-Boot's menu. Each costs ~40 MiB of kernel in `/boot`. |
@@ -320,10 +328,15 @@ The options worth setting in `./hosts/sheng.nix`:
 | `sheng.camera.qtGstreamerBackend` | `false` | Point Qt Multimedia at GStreamer **system-wide** and give it a PipeWire plugin path. Off by default because it changes the media backend for every Qt app, not just camera ones — but Qt's FFmpeg backend goes through V4L2 only and reports "no camera detected" here. |
 | `sheng.buildCache.enable` | `false` | Build shengKernel through ccacheStdenv, caching objects in `/var/cache/ccache`. Only worth it if you rebuild the kernel on the device, and the client running `nixos-rebuild` must be a trusted user or Nix silently drops the sandbox path. |
 | `sheng.greeter.enable` | `true` | Apply the greeter fixes to whatever display manager you configured. Today that means SDDM, and only if you enabled it: the patched build, `kwin --inputmethod`, the auto-rotation policy and the fingerprint PAM stack. |
-| `services.shengFirmware.enable` | `true` | The whole vendor userspace stack. |
-| `services.shengBootSlot.enable` | `true` | `qbootctl -m` after boot — leave this on. |
-| `services.shengNixBootstrap.enable` | `true` | First-boot store registration and boot-menu regeneration. |
-| `services.shengSerialConsole.enable` | `false` | Root console on the USB serial gadget (`ttyGS0`). Costs USB host mode while on — no hubs, keyboards or DP alt mode. Debugging only. |
+| `sheng.vendor.enable` | `true` | The whole vendor userspace stack. |
+| `sheng.factoryAddresses.enable` | `true` | Factory Wi-Fi/Bluetooth addresses from Android's `persist` partition, mounted read-only and never checked or replayed. |
+| `sheng.performance.enable` | `false` | zram swap, systemd-oomd, a deprioritised nix-daemon. The reference image turns it on. |
+| `sheng.boot.markSuccessful` | `true` | `qbootctl -m` after boot — leave this on. |
+| `sheng.boot.registerStore` | `true` | First-boot store registration and boot-menu regeneration. |
+| `sheng.serialConsole.enable` | `false` | Root console on the USB serial gadget (`ttyGS0`). Costs USB host mode while on — no hubs, keyboards or DP alt mode. Debugging only. |
+
+The pre-September names (`services.shengFirmware.enable` and friends) still work, with a
+warning.
 
 ### What these modules do *not* configure
 
@@ -341,12 +354,12 @@ fix, so they cost nothing if you have not:
 | Patched SDDM (rotation-aware wallpaper, fingerprint beside the password prompt) | `services.displayManager.sddm.enable` |
 | `kwin --inputmethod`, greeter auto-rotation | SDDM on Wayland with the KWin greeter |
 | `sddm-fingerprint` PAM service, `login.fprintAuth = false` | SDDM plus `services.fprintd.enable` |
-| WirePlumber UCM rules, node names and priorities | `services.pipewire.wireplumber.enable` |
+| WirePlumber UCM rules, node names and priorities, no BLE MIDI monitor | `services.pipewire.wireplumber.enable` |
 | WirePlumber libcamera monitor | `services.pipewire.wireplumber.enable` |
+| Factory Bluetooth address | `hardware.bluetooth.enable` |
 
-The one exception is `networking.firewall.enable`, which is `mkDefault false`: this kernel
-is built without the netfilter match modules NixOS's default ruleset loads, so leaving the
-firewall on fails activation rather than protecting anything.
+The one exception is `networking.firewall.enable`, which is `mkDefault false` until the
+nftables ruleset is confirmed on this kernel.
 
 ### Getting into a freshly flashed board
 
@@ -365,9 +378,9 @@ nixosConfigurations.sheng = nixos-sheng.lib.shengSystem {
 tty1 logs in as root without asking. Use it to bring a board up, then replace it with your
 own configuration.
 
-Also exported: `nixosModules.default` (all driver modules) and `nixosModules.firmware`
-(just the vendor userspace) for composing your own system, and `overlays.default`, which
-adds `shengKernel`, `shengPackages` and `shengSddm` to any nixpkgs.
+Also exported: `nixosModules.default` (all driver modules) for composing your own system,
+and `overlays.default`, which adds `shengKernel`, `shengPackages` and `shengSddm` to any
+nixpkgs.
 
 
 ### Re-export the build and flash commands into your own flake
@@ -392,10 +405,10 @@ in {
 
 ```sh
 nix build .#boot-img .#rootfs
-nix run   .#fastboot-flash -- ./result/boot.img
+nix run   .#fastboot-flash -- ./result/boot.img   # a `nix build` result link
 ```
 
-The `apps` are exported for all four host systems (`aarch64`/`x86_64` × `darwin`/`linux`),
+The `apps` are exported for `aarch64-darwin`, `aarch64-linux` and `x86_64-linux`,
 so the flashing and debugging side needs no aarch64 builder at all — only the two image
 packages do.
 
@@ -408,7 +421,7 @@ packages do.
 
 ## Firmware
 
-`services.shengFirmware.enable` installs the lot. Individually, via the overlay's
+`sheng.vendor.enable` installs the lot. Individually, via the overlay's
 `shengPackages`:
 
 | Package | What it is |
@@ -418,7 +431,7 @@ packages do.
 | `libssc` | Qualcomm's Sensor Sub-System client library — the sensors sit on top of it. |
 | `sheng-sensors` | udev rules binding the SSC sensor nodes. |
 | `iio-sensor-proxy` | Accelerometer/ALS/proximity/compass to the desktop, patched to read them from the SSC stack via `libssc`. |
-| `sheng-devauth` | Device authentication service, required by the fingerprint stack. |
+| `sheng-devauth` | Keyboard cover authentication, through QTEE. |
 | `sheng-fingerprint` | FPC1553 reader: `fprintd` integration, `qteesupplicant` and `sfsconfig` for the TrustZone side, and its udev rules. |
 | `sheng-thp` | Touch Host Processing — the DSP-side half of the touchscreen. |
 | `sheng-pen-status` | Stylus battery/proximity reporting (XDG autostart). |
@@ -427,7 +440,7 @@ packages do.
 | `sheng-charger-mode` | Offline/charging-mode handling. |
 | `alsa-ucm-sheng` | ALSA UCM2 profile (`Xiaomi/sheng`) so audio routing works. |
 
-Each lives in its own directory under `nixos/packages/firmware/`, holding a `default.nix`
+Each lives in its own directory under `nixos/packages/vendor/`, holding a `default.nix`
 plus whatever unit files, udev rules or configs it installs.
 
 ---
@@ -440,7 +453,7 @@ This port stands on other people's work.
   original `sm8550-xiaomi-sheng.dts` that this board's device tree is trimmed down from.
   The only third-party copyright line in the sheng-specific U-Boot code is theirs.
 - **[ianchb](https://github.com/ianchb)** — [`sm8550-mainline`](https://github.com/ianchb/sm8550-mainline)
-  (branch `sheng-7.2.2`), the kernel this actually runs, and
+  (tag `7.2.6-mac`), the kernel this actually runs, and
   [`debian-sheng`](https://github.com/ianchb/debian-sheng), the source of the `sm8550.config`
   kernel configuration and of the vendor firmware/userspace packaging ported here.
 - **[alghiffaryfa19](https://gitlab.postmarketos.org/alghiffaryfa19)** — the postmarketOS
@@ -448,8 +461,9 @@ This port stands on other people's work.
 - **[sm8550-mainline](https://github.com/sm8550-mainline)** — the upstream device-tree and
   enablement effort for this SoC.
 - **[DotRedstone/nixos-sheng](https://github.com/DotRedstone/nixos-sheng)** — an
-  independent Mobile-NixOS-based port of the same tablet, and the inspiration for a
-  generation picker in the bootloader.
+  independent Mobile-NixOS-based port of the same tablet, the inspiration for a
+  generation picker in the bootloader, and the source of the performance policy, the
+  sensor start gate, the fingerprint enrollment fix and the factory Bluetooth address.
 - **Casey Connolly and Linaro** — the upstream U-Boot Qualcomm board support this fork
   builds on.
 - **[U-Boot](https://u-boot.org)** and **[NixOS](https://nixos.org)**.

@@ -1,0 +1,23 @@
+# Wrap U-Boot in the Android boot.img that ABL loads. The one definition of
+# the layout: both `uboot build` and the Nix package call this.
+#
+# Usage: mk-boot-img <u-boot-dtb.bin> <u-boot.dtb> <boot.img>
+
+[ $# = 3 ] || {
+  echo "usage: mk-boot-img <u-boot-dtb.bin> <u-boot.dtb> <boot.img>" >&2
+  exit 1
+}
+
+# ABL rejects anything else. Offsets and page size come from the stock
+# boot.img header.
+mkbootimg \
+  --kernel "$1" \
+  --dtb "$2" \
+  --cmdline 'console=ttyMSM0,115200n8 console=ttyGS0,115200n8 g_serial.use_acm=1 root=PARTLABEL=userdata' \
+  --base 0x00000000 \
+  --kernel_offset 0x00008000 \
+  --tags_offset 0x01e00000 \
+  --pagesize 4096 \
+  --header_version 2 \
+  --id \
+  -o "$3"

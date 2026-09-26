@@ -7,11 +7,14 @@ services:
     # No ports: everything goes over `docker exec`, so there is no sshd or
     # host-key trust to manage.
     volumes:
-      # Named volume, or `docker rm` destroys the store and the next build
-      # recompiles the kernel, which is in no binary cache.
       - nix-store:/nix
-      - ../:/workspace:ro
+      # The whole workspace, at the host's own path, so --override-input
+      # ../u-boot resolves the same inside as out.
+      - ${SHENG_WORKSPACE:?set by the builder script}:${SHENG_WORKSPACE}:ro
     restart: unless-stopped
 
 volumes:
+  # Named explicitly so the kernel build cached in it survives the compose
+  # project being renamed. `docker rm` of the container does not touch it.
   nix-store:
+    name: docker_nix-store

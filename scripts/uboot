@@ -1,0 +1,99 @@
+# Incremental U-Boot build from a local checkout, natively on the host with a
+# cross compiler. The fast loop; `nix build .#u-boot` is the reproducible one.
+#
+# Usage:
+#   uboot build [--debug]   defconfig + make + boot.img, copied to $SHENG_OUT
+#   uboot menuconfig        tweak the build's .config
+#   uboot savedefconfig     write .config back to configs/sm8550_defconfig
+#   uboot clean             drop the build directories
+#
+# --debug builds into .output-debug with CONFIG_VIDEO_SHENG_MDSS_DEBUG=y, so
+# the debug build is exercised without editing the defconfig.
+
+readonly DEFCONFIG=sm8550_defconfig
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+# The checkout being edited, if we are inside one; else the workspace's.
+find_uboot() {
+  local dir="$PWD"
+  while [ "$dir" != / ]; do
+    [ -f "$dir/configs/$DEFCONFIG" ] && { echo "$dir"; return 0; }
+    dir="$(dirname "$dir")"
+  done
+  [ -n "${SHENG_WORKSPACE:-}" ] && [ -d "$SHENG_WORKSPACE/u-boot" ] &&
+    { echo "$SHENG_WORKSPACE/u-boot"; return 0; }
+  return 1
+}
+
+SRC="${SHENG_UBOOT:-$(find_uboot)}" || die "no U-Boot checkout found -- set SHENG_UBOOT"
+readonly SRC
+readonly OUT="${SHENG_OUT:-./out}"
+
+export CROSS_COMPILE="${CROSS_COMPILE:-aarch64-unknown-linux-gnu-}"
+# ld64 does not merge tentative definitions across units, which some host
+# tools (tools/imagetool.h on __MACH__) rely on.
+[ "$(uname)" = Darwin ] && export HOSTCFLAGS=-fcommon
+
+build_dir() {
+  if [ "${debug:-0}" = 1 ]; then echo "$SRC/.output-debug"; else echo "$SRC/.output"; fi
+}
+
+m() {
+  make -C "$SRC" O="$(build_dir)" "$@"
+}
+
+size_of() {
+  stat -f %z "$1" 2>/dev/null || stat -c %s "$1"
+}
+
+build_tag() {
+  grep -o 'sheng\.b=[0-9]*' "$SRC/board/qualcomm/sheng.env" | head -1
+}
+
+build() {
+  local debug=0
+  [ "${1:-}" = --debug ] && debug=1
+
+  local -r dir="$(build_dir)"
+  local -r bin="$dir/u-boot-dtb.bin"
+  local -r stamp="$dir/.sheng-last"
+  local before_size="" before_tag=""
+  [ -f "$stamp" ] && read -r before_size before_tag <"$stamp"
+
+  m "$DEFCONFIG" >/dev/null
+  if [ "$debug" = 1 ]; then
+    "$SRC/scripts/config" --file "$dir/.config" --enable VIDEO_SHENG_MDSS_DEBUG
+    m olddefconfig >/dev/null
+  fi
+  m -j"$(nproc)"
+
+  mk-boot-img "$bin" "$dir/u-boot.dtb" "$dir/boot.img" >/dev/null
+  mkdir -p "$OUT"
+  cp "$dir/boot.img" "$OUT/boot.img"
+
+  local -r size="$(size_of "$bin")" tag="$(build_tag)"
+  echo "$size $tag" >"$stamp"
+
+  echo
+  echo "boot.img  $OUT/boot.img  ($([ "$debug" = 1 ] && echo debug || echo release))"
+  if [ -n "$before_size" ]; then
+    echo "size      $size bytes ($((size - before_size)) vs last build; ABL's budget is ~1 MiB)"
+  else
+    echo "size      $size bytes (ABL's budget is ~1 MiB)"
+  fi
+  echo "tag       $tag"
+  # A power-cycle re-runs the old image; only the tag tells them apart.
+  [ "$tag" != "$before_tag" ] || echo "warning   $tag unchanged since the last build -- bump it in board/qualcomm/sheng.env"
+}
+
+case "${1:-build}" in
+  build) shift || true; build "$@" ;;
+  menuconfig) [ -f "$(build_dir)/.config" ] || m "$DEFCONFIG"; m menuconfig ;;
+  savedefconfig) m savedefconfig && cp "$(build_dir)/defconfig" "$SRC/configs/$DEFCONFIG" && echo "wrote configs/$DEFCONFIG" ;;
+  clean) rm -rf "$SRC/.output" "$SRC/.output-debug" ;;
+  *) die "usage: uboot [build [--debug]|menuconfig|savedefconfig|clean]" ;;
+esac

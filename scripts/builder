@@ -2,15 +2,18 @@
 # has no network, so fixed-output derivations cannot fetch in it.
 #
 # Usage:
-#   builder up                 start it
-#   builder down               stop it
-#   builder status             container state and store size
-#   builder build <attr>       build an attr, print its store path
-#   builder fetch <attr> [dir] build it and copy the result out
+#   builder up | down | status
+#   builder build <attr> [opts]   build an attr, print its store path
+#   builder fetch <attr> [opts]   build it and copy the result into $SHENG_OUT
+#   builder shell                 interactive shell in the flake directory
+#   builder run <command...>      run a command there, e.g. `nix flake check`
+#
+# Options for build/fetch:
+#   --local-uboot    use ../u-boot as it is on disk, uncommitted changes included
+#   --local-kernel   use ../kernel at its checked-out branch; committed changes only
+#   -- <nix args>    passed through to `nix build`
 
-readonly DIR="${SHENG_DOCKER_DIR:-./docker}"
 readonly NAME=sheng-builder
-readonly FLAKE=/workspace
 readonly SYSTEM=aarch64-linux
 
 die() {
@@ -18,57 +21,94 @@ die() {
   exit 1
 }
 
+ROOT="${SHENG_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+readonly ROOT
+SHENG_WORKSPACE="${SHENG_WORKSPACE:-$(dirname "$ROOT")}"
+export SHENG_WORKSPACE
+readonly DIR="${SHENG_DOCKER_DIR:-$ROOT/docker}"
+readonly OUT="${SHENG_OUT:-./out}"
+
 compose() {
   docker compose -f "$DIR/compose.yaml" "$@"
 }
 
 in_builder() {
-  docker exec "$NAME" /root/.nix-profile/bin/bash -c "$*"
+  docker exec -w "$ROOT" "$NAME" /root/.nix-profile/bin/bash -c "$*"
 }
 
-require_running() {
-  docker ps --filter "name=$NAME" --format '{{.Names}}' | grep -qx "$NAME" ||
-    die "$NAME is not running -- try: builder up"
+# `up` is idempotent and recreates the container when the mount changed, so
+# every command runs against the current workspace.
+ensure_up() {
+  compose up -d --quiet-pull >/dev/null 2>&1 || compose up -d >&2 || die "cannot start $NAME"
+  # Containers from an image built before the Dockerfile trusted the mount
+  # still fail libgit2's ownership check.
+  in_builder "printf '[safe]\n\tdirectory = *\n' >/etc/gitconfig"
 }
 
 build() {
-  local -r attr="${1:?usage: builder build <attr>}"
-  require_running
-  in_builder "nix build --print-out-paths --print-build-logs \
-    '$FLAKE#packages.$SYSTEM.$attr'"
+  local -r attr="${1:?usage: builder build <attr> [--local-uboot] [--local-kernel] [-- nix args]}"
+  shift
+  local -a args=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --local-uboot)
+        [ -d "$SHENG_WORKSPACE/u-boot" ] || die "no checkout at $SHENG_WORKSPACE/u-boot"
+        args+=(--override-input u-boot-src "$SHENG_WORKSPACE/u-boot")
+        ;;
+      --local-kernel)
+        local -r k="$SHENG_WORKSPACE/kernel"
+        [ -d "$k/.git" ] || die "no checkout at $k"
+        # By ref, so nix reads git objects rather than the worktree: a
+        # case-insensitive host filesystem mangles netfilter's xt_*.h pairs.
+        args+=(--override-input kernel-src "git+file://$k?ref=$(git -C "$k" branch --show-current)")
+        [ -z "$(git -C "$k" status --porcelain --untracked-files=no)" ] ||
+          echo "note: uncommitted kernel changes are not part of this build" >&2
+        ;;
+      --) shift && args+=("$@") && break ;;
+      *) die "unknown option $1" ;;
+    esac
+    shift
+  done
+
+  local quoted=""
+  [ ${#args[@]} = 0 ] || quoted="$(printf '%q ' "${args[@]}")"
+
+  ensure_up
+  in_builder "nix build --no-link --print-out-paths --print-build-logs \
+    '.#packages.$SYSTEM.$attr' $quoted"
 }
 
 # Streamed as a tar rather than `docker cp`, which recreates the store's
 # read-only modes as it goes and then cannot write into its own directory.
 fetch() {
-  local -r attr="${1:?usage: builder fetch <attr> [dir]}"
-  local -r dest="${2:-./result}"
   local path
 
-  path="$(build "$attr" | tail -1)" || die "build failed"
+  path="$(build "$@" | tail -1)" || die "build failed"
   [ -n "$path" ] || die "build produced no output path"
 
-  # Deliberately NOT `rm -rf "$dest"`: both artifacts land in ./result from
-  # different attrs, so wiping it made `fetch u-boot && fetch nixos` delete
-  # boot.img. A stale file left behind is the lesser problem.
-  mkdir -p "$dest"
+  # Deliberately NOT `rm -rf "$OUT"`: boot.img and the rootfs land here from
+  # different attrs. A stale file left behind is the lesser problem.
+  mkdir -p "$OUT"
   docker exec "$NAME" tar -C "$path" -cf - . |
-    tar -xf - -C "$dest" --no-same-permissions
-  chmod -R u+w "$dest"
-  echo "$dest"
+    tar -xf - -C "$OUT" --no-same-permissions
+  chmod -R u+w "$OUT"
+  ls -lh "$OUT"
 }
 
 status() {
   compose ps
-  require_running
-  in_builder 'nix --version; ls /nix/store | wc -l'
+  docker ps --filter "name=$NAME" --format '{{.Names}}' | grep -qx "$NAME" || exit 0
+  in_builder "nix --version && ls /nix/store | wc -l | xargs printf '%s store paths\\n'"
 }
 
-case "${1:-up}" in
-  up) compose up -d ;;
+case "${1:-status}" in
+  up) ensure_up && echo "$NAME up, workspace $SHENG_WORKSPACE" ;;
   down) compose down ;;
   status) status ;;
   build) shift && build "$@" ;;
   fetch) shift && fetch "$@" ;;
-  *) die "usage: builder [up|down|status|build <attr>|fetch <attr> [dir]]" ;;
+  shell) ensure_up && docker exec -it -w "$ROOT" "$NAME" /root/.nix-profile/bin/bash ;;
+  run) shift && ensure_up && in_builder "$*" ;;
+  *) die "usage: builder [up|down|status|build|fetch|shell|run] -- see the header of scripts/builder" ;;
 esac

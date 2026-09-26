@@ -1,5 +1,6 @@
 # Mainline kernel for the Xiaomi Pad 6S Pro (sheng, SM8550P), tracking
-# ianchb/sm8550-mainline.
+# ianchb/sm8550-mainline. Both sources are flake inputs (kernel-src,
+# kernel-config), so a local tree is one --override-input away.
 #
 # The base config is debian-sheng's repo-root sm8550.config, not the in-tree
 # arch/arm64/configs/sm8550.config -- same name, but the in-tree one is a
@@ -8,9 +9,9 @@
 {
   lib,
   stdenv,
-  fetchFromGitHub,
-  fetchurl,
   linuxManualConfig,
+  src,
+  baseConfig,
   buildPackages,
   flex,
   bison,
@@ -30,19 +31,22 @@
 }@args:
 
 let
-  version = "7.2.2-sheng";
+  # Read off the tree and the config rather than hardcoded, so bumping either
+  # input is the whole upgrade. Both are store paths already: no IFD.
+  lines = lib.splitString "\n" (builtins.readFile "${src}/Makefile");
+  makeVar =
+    name: lib.trim (lib.removePrefix "${name} =" (lib.findFirst (lib.hasPrefix "${name} =") "" lines));
+  kernelVersion = "${makeVar "VERSION"}.${makeVar "PATCHLEVEL"}.${makeVar "SUBLEVEL"}${makeVar "EXTRAVERSION"}";
 
-  src = fetchFromGitHub {
-    owner = "ianchb";
-    repo = "sm8550-mainline";
-    rev = "ad75da348a020f0b7cb541ca2f06ab38cf77004d"; # tag 7.2.2
-    hash = "sha256-Lbnf90NdICvMKwmJRwT24XYp6EvZxgaRjb6pvNpKWdw=";
-  };
+  localVersion = lib.removeSuffix "\"" (
+    lib.removePrefix "CONFIG_LOCALVERSION=\"" (
+      lib.findFirst (lib.hasPrefix "CONFIG_LOCALVERSION=\"") "" (
+        lib.splitString "\n" (builtins.readFile baseConfig)
+      )
+    )
+  );
 
-  baseConfig = fetchurl {
-    url = "https://raw.githubusercontent.com/ianchb/debian-sheng/d570156721cff0026a89596cdf2eb421fd04a434/sm8550.config";
-    hash = "sha256-4hPYqTPCriFY1D/xo9Eot0UD1QgWNkNQOOhccE1EJW0=";
-  };
+  version = "${kernelVersion}-sheng";
 
   ourConfigFragment = builtins.toFile "sheng-extra.config" ''
     CONFIG_USB_CONFIGFS_ACM=y
@@ -58,6 +62,8 @@ let
     # strict-devmem blocks both.
     # CONFIG_STRICT_DEVMEM is not set
     # CONFIG_IO_STRICT_DEVMEM is not set
+    # The NixOS nftables firewall's reverse-path check.
+    CONFIG_NFT_FIB_INET=m
   '';
 
   configfile = stdenv.mkDerivation {
@@ -91,6 +97,14 @@ let
       ./scripts/kconfig/merge_config.sh -O . -m .config ${ourConfigFragment}
       make olddefconfig
 
+      # olddefconfig drops an option whose dependencies are unmet, silently.
+      grep '^CONFIG_' ${ourConfigFragment} | while read -r want; do
+        grep -qxF "$want" .config || { echo "kernel config lost: $want" >&2; exit 1; }
+      done
+      sed -n 's/^# \(CONFIG_[A-Z0-9_]*\) is not set$/\1/p' ${ourConfigFragment} | while read -r off; do
+        ! grep -q "^$off=" .config || { echo "kernel config still sets $off" >&2; exit 1; }
+      done
+
       cp .config "$out"
 
       runHook postInstall
@@ -108,43 +122,20 @@ linuxManualConfig {
     randstructSeed
     ;
 
-  # DP fixes for the external monitor. See packages/kernel/patches.
-  kernelPatches = [
-    {
-      name = "dp-decide-dsc-once";
-      patch = ./patches/01-drm-msm-dp-don-t-re-decide-DSC-from-the-reduced-bpp.patch;
-    }
-    {
-      name = "dp-write-full-pps";
-      patch = ./patches/02-drm-msm-dp-write-the-whole-128-byte-PPS.patch;
-    }
-    {
-      name = "dp-drop-stale-dsc-answer";
-      patch = ./patches/03-drm-msm-dp-don-t-inherit-the-previous-mode-s-DSC-ans.patch;
-    }
-    {
-      name = "dp-widebus-link-rate";
-      patch = ./patches/04-drm-msm-dp-don-t-apply-the-wide-bus-divisor-to-the-l.patch;
-    }
-    {
-      name = "dp-trained-lane-count";
-      patch = ./patches/05-drm-msm-dp-validate-modes-against-the-trained-lane-c.patch;
-    }
-    {
-      name = "dp-prefer-lower-bpc";
-      patch = ./patches/06-drm-msm-dp-prefer-a-lower-bit-depth-over-compression.patch;
-    }
-  ]
-  ++ (args.kernelPatches or [ ]);
+  # Everything in ./patches, in filename order. Each file says what it fixes.
+  kernelPatches =
+    map (name: {
+      name = lib.removeSuffix ".patch" name;
+      patch = ./patches + "/${name}";
+    }) (builtins.attrNames (builtins.readDir ./patches))
+    ++ (args.kernelPatches or [ ]);
 
-  # sm8550.config sets CONFIG_LOCALVERSION="-sm8550", so kernelrelease is
-  # 7.2.2-sm8550, not 7.2.2-sheng.
-  modDirVersion = "7.2.2-sm8550";
+  # kernelrelease comes from CONFIG_LOCALVERSION ("-sm8550"), not "-sheng".
+  modDirVersion = kernelVersion + localVersion;
 
   allowImportFromDerivation = true;
 
   extraMeta = {
-    branch = "sheng-7.2.2";
     description = "Mainline kernel for the Xiaomi Pad 6S Pro (sheng, SM8550P)";
   };
 }
