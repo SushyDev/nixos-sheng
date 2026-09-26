@@ -1,10 +1,12 @@
-From: sheng-development
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sheng-development <sheng-development@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 17:45:25 +0200
 Subject: [PATCH] Discover the SSC accelerometer first
 
 find_sensors() walks drivers[] in order and each SSC discovery blocks until it
-finishes, so a driver placed early holds up every driver behind it. The
-pmaports patches append their drivers in series order -- proximity, light,
-accel, compass -- which puts the accelerometer third.
+finishes, so a driver placed early holds up every driver behind it. Upstream
+lists the SSC drivers as proximity, light, accel, compass, which puts the
+accelerometer third.
 
 That ordering is what makes auto-rotate wait on sensors it does not need. Now
 that libssc retries a data type the aDSP has not registered yet, proximity
@@ -13,9 +15,15 @@ accelerometer sits behind it.
 
 Nothing here depends on discovery order, so put the accelerometer first and
 leave the sensors that may have to wait until last.
+---
+ src/iio-sensor-proxy.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 3ac9052..795b33d 100644
 --- a/src/iio-sensor-proxy.c
 +++ b/src/iio-sensor-proxy.c
-@@ -80,9 +80,9 @@ static const SensorDriver * const drivers[] = {
+@@ -80,10 +80,10 @@ static const SensorDriver * const drivers[] = {
  	&iio_poll_proximity,
  	&input_proximity,
  #ifdef HAS_LIBSSC
@@ -27,3 +35,4 @@ leave the sensors that may have to wait until last.
 +	&ssc_proximity,
  #endif
  };
+ 

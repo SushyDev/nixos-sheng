@@ -1,30 +1,28 @@
-# Qualcomm FastRPC userspace (ADSP RPC transport) + the adsprpcd sensor
-# daemon service. Source: https://github.com/qualcomm/fastrpc (v1.0.2).
+# Qualcomm FastRPC userspace: the DSP RPC transport and the *rpcd daemons.
+# Source: https://github.com/qualcomm/fastrpc
 {
   lib,
   stdenv,
   fetchFromGitHub,
   autoreconfHook,
   pkg-config,
-  patchelf,
   libyaml,
 }:
 
-stdenv.mkDerivation rec {
+stdenv.mkDerivation (finalAttrs: {
   pname = "fastrpc";
   version = "1.0.2";
 
   src = fetchFromGitHub {
     owner = "qualcomm";
     repo = "fastrpc";
-    rev = "v${version}";
+    tag = "v${finalAttrs.version}";
     hash = "sha256-/RXH34zqAxtWty75UHoOvS6fdmB+UfTRtB6G9IZiSWk=";
   };
 
   nativeBuildInputs = [
     autoreconfHook
     pkg-config
-    patchelf
   ];
   buildInputs = [ libyaml ];
 
@@ -33,25 +31,22 @@ stdenv.mkDerivation rec {
   configureFlags = [ "--with-config-base-dir=/var/lib/qcom" ];
 
   postInstall = ''
-    install -Dm755 src/adsprpcd "$out/bin/adsprpcd"
-    rm -rf "$out/share/fastrpc_test" "$out/bin/fastrpc_test"
-
-    install -Dm644 ${./adsprpcd-sensorspd.service} \
-      "$out/lib/systemd/system/adsprpcd-sensorspd.service"
+    rm -r "$out"/{bin,lib,share}/fastrpc_test
   '';
 
-  # postInstall copies adsprpcd straight out of the build tree, bypassing
-  # libtool's install step, so it carries an RPATH of glibc only and never
-  # dlopens libadsp_default_listener.so.1. It then restart-loops forever and
+  # Each daemon dlopens its lib*_default_listener.so rather than linking it, so
+  # nothing puts $out/lib on its RUNPATH. Without it adsprpcd restart-loops and
   # the sensor PD never loads, which surfaces only as missing sensors.
   postFixup = ''
-    patchelf --add-rpath "$out/lib" "$out/bin/adsprpcd"
-    patchelf --add-rpath "$out/lib" "$out/bin/cdsprpcd"
+    for daemon in "$out"/bin/*rpcd; do
+      patchelf --add-rpath "$out/lib" "$daemon"
+    done
   '';
 
   meta = {
-    description = "Qualcomm FastRPC userspace + ADSP sensor RPC daemon";
+    description = "Qualcomm FastRPC userspace and DSP RPC daemons";
+    homepage = "https://github.com/qualcomm/fastrpc";
     license = lib.licenses.bsd3;
     platforms = [ "aarch64-linux" ];
   };
-}
+})

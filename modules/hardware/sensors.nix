@@ -8,59 +8,53 @@
 
 let
   sp = pkgs.shengPackages;
-
-  # An open PD handle does not mean SSC registered; libssc retries ~20 s itself.
-  waitForSsc = pkgs.writeShellScript "sheng-wait-for-ssc" ''
-    exec ${sp.libssc}/bin/ssccli --sensor light --timeout 1 >/dev/null
-  '';
 in
 {
   config = lib.mkIf config.sheng.vendor.enable {
-    environment.systemPackages = [
-      sp.fastrpc
-      sp.libssc
-      sp.iio-sensor-proxy
-    ];
+    hardware.sensor.iio = {
+      enable = true;
+      package = sp.iio-sensor-proxy;
+    };
 
-    systemd.packages = [
-      sp.fastrpc
-      sp.iio-sensor-proxy
-    ];
+    # Upstream's rule tags the aDSP with the SSC sensors every board has; this
+    # adds the accelerometer, proximity and the accelerometer's mount matrix.
+    services.udev.packages = [ sp.sheng-sensors ];
 
-    services.udev.packages = [
-      sp.iio-sensor-proxy
-      sp.sheng-sensors
-    ];
+    # ssccli, to query the Sensor Core directly.
+    environment.systemPackages = [ sp.libssc ];
 
-    systemd.services.iio-sensor-proxy.wantedBy = [ "multi-user.target" ];
-
-    # No ConditionPathExists: systemd checks it once, so a late node skipped the unit all boot.
     systemd.services.adsprpcd-sensorspd = {
+      description = "aDSP RPC daemon for the sensors PD";
       wantedBy = [ "multi-user.target" ];
+
+      # The aDSP reads its sensor registry from here and writes temp.json back,
+      # so it is a mutable copy, reseeded when the package changes.
+      preStart = ''
+        src=${sp.sheng-sensors}/share/qcom
+        if [ "$(cat .nix-source 2>/dev/null)" != "$src" ]; then
+          find . -mindepth 1 -delete
+          cp -r --no-preserve=mode,ownership "$src"/. .
+          echo "$src" > .nix-source
+        fi
+      '';
+
       serviceConfig = {
-        ExecStartPost = waitForSsc;
+        Type = "exec";
+        ExecStart = "${sp.fastrpc}/bin/adsprpcd sensorspd";
+        # An open PD handle does not mean SSC registered; libssc retries ~20 s.
+        ExecStartPost = "${lib.getExe' sp.libssc "ssccli"} --sensor light --timeout 1";
         TimeoutStartSec = 60;
+        Restart = "on-failure";
+        RestartSec = 5;
+        StateDirectory = "qcom";
+        WorkingDirectory = "/var/lib/qcom";
       };
     };
 
-    # A mutable copy, because the aDSP writes temp.json back into it.
-    systemd.services.sheng-sensors-data = {
-      description = "Seed the Qualcomm SSC sensor registry fastrpc serves to the aDSP";
-      before = [ "adsprpcd-sensorspd.service" ];
-      requiredBy = [ "adsprpcd-sensorspd.service" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-      };
-      script = ''
-        src=${sp.sheng-sensors}/share/qcom
-        if [ "$(cat /var/lib/qcom/.nix-source 2>/dev/null)" != "$src" ]; then
-          rm -rf /var/lib/qcom
-          mkdir -p /var/lib/qcom
-          cp -r --no-preserve=mode,ownership "$src"/. /var/lib/qcom/
-          echo "$src" > /var/lib/qcom/.nix-source
-        fi
-      '';
+    systemd.services.iio-sensor-proxy = {
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "adsprpcd-sensorspd.service" ];
+      after = [ "adsprpcd-sensorspd.service" ];
     };
   };
 }

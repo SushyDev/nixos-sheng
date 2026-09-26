@@ -21,6 +21,14 @@ stdenvNoCC.mkDerivation {
   dontBuild = true;
   dontConfigure = true;
 
+  # The registry names its files by Debian's install prefix. The aDSP reads
+  # them from the mutable copy modules/hardware/sensors.nix seeds, which is
+  # also fastrpc's --with-config-base-dir.
+  postPatch = ''
+    substituteInPlace usr/share/qcom/sm8550/Xiaomi/sheng/vendor/etc/sensors/sns_reg_config \
+      --replace-fail /usr/share/qcom /var/lib/qcom
+  '';
+
   installPhase = ''
     runHook preInstall
 

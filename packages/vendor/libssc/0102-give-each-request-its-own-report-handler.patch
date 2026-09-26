@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sheng-development <sheng-development@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 18:13:56 +0200
+Subject: [PATCH] Give each request its own report handler
+
+sensor_open() and client_ready() connect report_received with a fresh
+ReportReceivedContext, and every path that completes the request frees that
+context and disconnects priv->report_id. But priv->report_id is one slot per
+sensor, so a second request made while the first is still waiting for its
+response overwrites it. When the response arrives, the first handler frees
+its context and disconnects the second handler instead of itself, and stays
+connected to freed memory:
+
+  #0  report_received (libssc.so.2)
+  ...
+  #22 ssc_common_wait_sync_context (libssc.so.2)
+  #23 ssc_sensor_accelerometer_open_sync (libssc.so.2)
+  #24 ssc_accelerometer_set_polling (iio-sensor-proxy)
+  #25 handle_method_call (iio-sensor-proxy)
+
+iio-sensor-proxy makes exactly that overlap: it opens sensors synchronously
+from its D-Bus method handler, and the nested main loop dispatches the next
+Claim/Release while the first open is still in flight. It segfaults when a
+client claims the accelerometer shortly after another released it.
+
+Keep the handler id in the context it was connected with, so each handler
+disconnects itself and overlapping requests complete independently.
+---
+ src/libssc-sensor.c | 21 ++++++++-------------
+ 1 file changed, 8 insertions(+), 13 deletions(-)
+
+diff --git a/src/libssc-sensor.c b/src/libssc-sensor.c
+index 04ca73a..8f21bdc 100644
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -44,6 +44,7 @@ static GParamSpec *properties[N_PROPERTIES];
+ typedef struct {
+ 	GTask *task;
+ 	SSCSensor *sensor;
++	gulong report_id;
+ } ReportReceivedContext;
+ 
+ typedef struct _SSCSensorPrivate {
+@@ -58,7 +59,6 @@ typedef struct _SSCSensorPrivate {
+ 	gfloat mount_matrix[3][3];
+ 
+ 	SSCClient *client;
+-	guint report_id;
+ 	gboolean attr_populated;
+ 	gboolean service_available;
+ 	guint service_retries;
+@@ -239,7 +239,7 @@ sensor_open (SSCSensor *self, GCancellable *cancellable, GAsyncReadyCallback cal
+ 	ctx->sensor = self;
+ 
+ 	/* Start listening for report signals */
+-	priv->report_id = g_signal_connect (priv->client,
++	ctx->report_id = g_signal_connect (priv->client,
+ 			"report",
+ 			G_CALLBACK (report_received),
+ 			ctx);
+@@ -327,8 +327,7 @@ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_
+ 
+ 			/* Fail to discover when service is not available after 100s */
+ 			if (priv->service_retries >= MAX_RETRIES) {
+-				g_signal_handler_disconnect (self, priv->report_id);
+-				priv->report_id = 0;
++				g_signal_handler_disconnect (self, ctx->report_id);
+ 
+ 				g_set_error (&error, ssc_sensor_error_quark(), SSC_SENSOR_ERROR_NO_SERVICE,
+ 					     "Sensor service unavailable");
+@@ -380,8 +379,7 @@ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_
+ 
+ 			g_debug ("No '%s' sensor available", priv->data_type);
+ 
+-			g_signal_handler_disconnect (self, priv->report_id);
+-			priv->report_id = 0;
++			g_signal_handler_disconnect (self, ctx->report_id);
+ 
+ 			g_task_return_boolean (ctx->task, FALSE);
+ 			g_clear_object (&ctx->task);
+@@ -469,8 +467,7 @@ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_
+ 
+ 		/* Sensor initialized, complete task and stop listening */
+ 		if (ctx->task) {
+-			g_signal_handler_disconnect (self, priv->report_id);
+-			priv->report_id = 0;
++			g_signal_handler_disconnect (self, ctx->report_id);
+ 			g_task_return_boolean (ctx->task, attributes_populated);
+ 			g_clear_object (&ctx->task);
+ 			g_slice_free (ReportReceivedContext, ctx);
+@@ -497,8 +494,7 @@ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_
+ 
+ 		/* Configuration updated, complete task and stop listening */
+ 		if (ctx->task) {
+-			g_signal_handler_disconnect (self, priv->report_id);
+-			priv->report_id = 0;
++			g_signal_handler_disconnect (self, ctx->report_id);
+ 			g_task_return_boolean (ctx->task, TRUE);
+ 			g_clear_object (&ctx->task);
+ 			g_slice_free (ReportReceivedContext, ctx);
+@@ -516,8 +512,7 @@ report_received (SSCClient *self, guint32 msg_id, guint64 uid_high, guint64 uid_
+ 		g_debug ("Measurement received for '%s' sensor (%" G_GUINT64_FORMAT " %" G_GUINT64_FORMAT "), assuming enabled", priv->data_type, priv->uid_high, priv->uid_low);
+ 
+ 		if (ctx->task) {
+-			g_signal_handler_disconnect (self, priv->report_id);
+-			priv->report_id = 0;
++			g_signal_handler_disconnect (self, ctx->report_id);
+ 			g_task_return_boolean (ctx->task, TRUE);
+ 			g_clear_object (&ctx->task);
+ 			g_slice_free (ReportReceivedContext, ctx);
+@@ -704,7 +699,7 @@ client_ready (SSCClient *client, GAsyncResult *result, gpointer user_data)
+ 	ctx->sensor = self;
+ 
+ 	/* Start listening for report signals */
+-	priv->report_id = g_signal_connect (priv->client,
++	ctx->report_id = g_signal_connect (priv->client,
+ 			"report",
+ 			G_CALLBACK (report_received),
+ 			ctx);

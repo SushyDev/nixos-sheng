@@ -1,5 +1,7 @@
-# Audio needs the UCM search path, WirePlumber using UCM rather than ACP, and
-# the HiFi verb applied at boot -- without which every PCM open fails with EINVAL.
+# Audio is the sheng UCM profile, which PipeWire's ACP reads like any other: it
+# applies the HiFi verb, then each device's sequence as its port is used --
+# for Speaker, powering up the four CS35L43 amps and loading their DSP. Jacks
+# and priorities come from the profile too.
 {
   config,
   lib,
@@ -9,13 +11,10 @@
 
 let
   cfg = config.sheng.audio;
-  wireplumber = config.services.pipewire.enable && config.services.pipewire.wireplumber.enable;
+  card = "XiaomiPad6SPro";
 
-  # The card registers seconds after multi-user.target, so the verb has to hang
-  # off the card's own device unit or WirePlumber races it and gives up.
-  soundCard = "sys-devices-platform-sound-sound-card0-controlC0.device";
-
-  # A union: ALSA_CONFIG_UCM2 replaces the search path, and without ucm2/lib UCM fails silently.
+  # ALSA_CONFIG_UCM2 replaces the search path, so it has to carry the stock
+  # tree as well; without its ucm2/lib, UCM fails silently.
   ucm2 = "${
     pkgs.symlinkJoin {
       name = "alsa-ucm2-sheng";
@@ -26,145 +25,113 @@ let
     }
   }/share/alsa/ucm2";
 
-  node = name: props: {
-    matches = [ { "node.name" = name; } ];
-    actions.update-props = props;
-  };
-  stereo = {
-    "audio.channels" = 2;
-    "audio.position" = [
-      "FL"
-      "FR"
-    ];
-  };
-  priority = p: {
-    "priority.driver" = p;
-    "priority.session" = p;
-  };
+  # The card registers seconds after multi-user.target.
+  soundCard = "sys-devices-platform-sound-sound-card0-controlC0.device";
 in
 {
   options.sheng.audio.enable = lib.mkOption {
     type = lib.types.bool;
     default = true;
-    description = "Apply the HiFi UCM verb at boot and drive this card through UCM in WirePlumber.";
+    description = "Put the sheng UCM profile on ALSA's search path, and follow orientation with the speakers.";
   };
 
-  config = lib.mkMerge [
-    (lib.mkIf (cfg.enable && wireplumber) {
-      services.pipewire.wireplumber.extraConfig."11-sheng-alsa-ucm" = {
-        "monitor.alsa.rules" = [
-          {
-            matches = [ { "device.name" = "alsa_card.platform-sound"; } ];
-            actions.update-props = {
-              "api.alsa.use-acp" = false;
-              "api.alsa.use-ucm" = true;
-            };
-          }
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        environment.sessionVariables.ALSA_CONFIG_UCM2 = ucm2;
 
-          # Raw PCM nodes come up as 64 channels with no positions, and without
-          # priorities the default sink lands on DisplayPort.
-          (node "alsa_output.platform-sound.playback.0.0" (
-            {
-              "node.description" = "Speakers";
-              "node.nick" = "Speakers";
+        # BLE MIDI registration fails on this controller and crashes WirePlumber.
+        services.pipewire.wireplumber.extraConfig."sheng-no-bluez-midi"."wireplumber.profiles".main."monitor.bluez-midi" =
+          "disabled";
+      }
+
+      (lib.mkIf config.sheng.vendor.enable {
+        systemd.services.sheng-audio-rotate = {
+          description = "Match speaker channels to device orientation";
+          bindsTo = [ soundCard ];
+          wantedBy = [ soundCard ];
+          wants = [ "iio-sensor-proxy.service" ];
+          after = [
+            soundCard
+            "iio-sensor-proxy.service"
+          ];
+          path = [
+            pkgs.alsa-utils
+            config.hardware.sensor.iio.package
+          ];
+          serviceConfig = {
+            Restart = "always";
+            RestartSec = 5;
+          };
+          script = ''
+            top="TLH TLL TRL"
+            bottom="BLH BLL BRL"
+            # One amixer for the whole batch: a write per process piles up behind
+            # the control events the writes themselves raise.
+            set_amps() {
+              for amp in $1; do
+                echo "cset name='$amp $2' $3"
+              done
             }
-            // stereo
-            // priority 1200
-          ))
-          (node "alsa_output.platform-sound.playback.1.0" (
-            { "node.description" = "Headphones"; } // stereo // priority 1100
-          ))
-          (node "alsa_output.platform-sound.playback.3.0" (
-            { "node.description" = "DisplayPort"; } // priority 100
-          ))
-          (node "alsa_input.platform-sound.capture.2.0" (
-            { "node.description" = "Built-in Microphones"; } // stereo // priority 1200
-          ))
-        ];
-      };
 
-      # BLE MIDI registration fails on this controller and crashes WirePlumber.
-      services.pipewire.wireplumber.extraConfig."12-sheng-no-bluez-midi"."wireplumber.profiles".main."monitor.bluez-midi" =
-        "disabled";
-    })
+            # In landscape the top amps are one channel and the bottom amps the
+            # other, so flipping which takes slot 0 swaps the pair in the amps
+            # themselves. In portrait that pair would be above and below you:
+            # each amp's DSP gets both channels on its second input instead, and
+            # the firmware's input conditioner mixes them: the mono mix takes both
+            # below its crossover, the balance splits what is above it evenly.
+            # Only writes that change a value raise a control event.
+            apply() {
+              case "$1" in
+                normal | bottom-up)
+                  [ "$1" = normal ] && left=$top right=$bottom || left=$bottom right=$top
+                  set_amps "$top $bottom" "DSP1 Protection 5f20e INP_CND_MM_XO_EN" 0x00,0x00,0x00,0x00
+                  set_amps "$top $bottom" "DSP1 Protection 5f20e INP_CND_CH_BAL" 0x00,0x00,0x00,0x00
+                  set_amps "$top $bottom" "DSP RX2 Source" ASPRX1
+                  set_amps "$left" "ASPRX1 Slot Position" 0
+                  set_amps "$right" "ASPRX1 Slot Position" 1
+                  ;;
+                left-up | right-up)
+                  set_amps "$top $bottom" "ASPRX1 Slot Position" 0
+                  set_amps "$top $bottom" "ASPRX2 Slot Position" 1
+                  set_amps "$top $bottom" "DSP RX2 Source" ASPRX2
+                  set_amps "$top $bottom" "DSP1 Protection 5f20e INP_CND_CH_BAL" 0x00,0x40,0x00,0x00
+                  set_amps "$top $bottom" "DSP1 Protection 5f20e INP_CND_MM_XO_EN" 0x00,0x00,0x00,0x01
+                  ;;
+              esac | amixer -c ${card} -q -s
+            }
 
-    (lib.mkIf cfg.enable {
-      environment.systemPackages = [ pkgs.shengPackages.alsa-ucm-sheng ];
-      environment.pathsToLink = [ "/share/alsa" ];
-      environment.sessionVariables.ALSA_CONFIG_UCM2 = ucm2;
-
-      systemd.services.sheng-alsa-ucm = {
-        description = "Apply the sheng HiFi UCM verb";
-        bindsTo = [ soundCard ];
-        after = [ soundCard ];
-        wantedBy = [ soundCard ];
-        environment.ALSA_CONFIG_UCM2 = ucm2;
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          # The verb alone plays silence: the Speaker device's EnableSequence
-          # powers up the four CS35L43 amps and loads their DSP firmware.
-          ExecStart = "${pkgs.alsa-utils}/bin/alsaucm -c Xiaomi-Pad6SPro set _verb HiFi set _enadev Speaker set _enadev Mic3";
+            # monitor-sensor holds the claim that makes readings flow, and
+            # re-claims whenever the proxy restarts. The HiFi verb sets up the
+            # amps for upright and whoever opens the card applies it, so put
+            # them back when it does.
+            {
+              monitor-sensor --accel &
+              alsactl monitor hw:${card} &
+              wait
+            } | while read -r line; do
+              # Take everything already queued, then apply once.
+              stale=
+              while :; do
+                case "$line" in
+                  "=== Has accelerometer (orientation: "*)
+                    orientation=''${line#*orientation: }
+                    orientation=''${orientation%%,*}
+                    stale=1
+                    ;;
+                  *"Accelerometer orientation changed: "*)
+                    orientation=''${line##*: }
+                    stale=1
+                    ;;
+                  *"Slot Position"* | *"DSP RX2 Source"* | *INP_CND_MM_XO_EN* | *INP_CND_CH_BAL,*) stale=1 ;;
+                esac
+                read -r -t 0.2 line || break
+              done
+              [ -z "$stale" ] || apply "$orientation"
+            done
+          '';
         };
-      };
-
-      systemd.services.display-manager.after = [ "sheng-alsa-ucm.service" ];
-    })
-
-    (lib.mkIf (cfg.enable && config.sheng.vendor.enable) {
-      systemd.services.sheng-audio-rotate = {
-        description = "Match speaker channels to device orientation";
-        partOf = [ "sheng-alsa-ucm.service" ];
-        wantedBy = [ "sheng-alsa-ucm.service" ];
-        wants = [ "iio-sensor-proxy.service" ];
-        after = [
-          "sheng-alsa-ucm.service"
-          "iio-sensor-proxy.service"
-        ];
-        path = [
-          pkgs.alsa-utils
-          pkgs.glib.bin
-          pkgs.systemd
-        ];
-        serviceConfig = {
-          Restart = "always";
-          RestartSec = 5;
-        };
-        script = ''
-          orientation() {
-            busctl get-property net.hadess.SensorProxy /net/hadess/SensorProxy \
-              net.hadess.SensorProxy AccelerometerOrientation | cut -d'"' -f2
-          }
-
-          # HiFi.conf wires the top amps to slot 0 and the bottom amps to slot 1;
-          # flipping the slots swaps the stereo pair in the amps themselves.
-          apply() {
-            case "$1" in
-              normal) top=0 bottom=1 ;;
-              bottom-up) top=1 bottom=0 ;;
-              *) return 0 ;;
-            esac
-            for amp in TLH TLL TRL; do
-              amixer -c0 cset name="$amp ASPRX1 Slot Position" "$top" >/dev/null
-            done
-            for amp in BLH BLL BRL; do
-              amixer -c0 cset name="$amp ASPRX1 Slot Position" "$bottom" >/dev/null
-            done
-          }
-
-          busctl call net.hadess.SensorProxy /net/hadess/SensorProxy \
-            net.hadess.SensorProxy ClaimAccelerometer >/dev/null
-          apply "$(orientation)"
-
-          gdbus monitor --system --dest net.hadess.SensorProxy \
-              --object-path /net/hadess/SensorProxy |
-            while read -r event; do
-              case "$event" in
-                *AccelerometerOrientation*) apply "$(orientation)" ;;
-              esac
-            done
-        '';
-      };
-    })
-  ];
+      })
+    ]
+  );
 }

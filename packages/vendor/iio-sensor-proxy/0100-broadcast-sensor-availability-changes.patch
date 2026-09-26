@@ -1,5 +1,8 @@
-From: sheng-development
-Subject: [PATCH] Broadcast sensor availability instead of only telling claimants
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sheng-development <sheng-development@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 17:45:24 +0200
+Subject: [PATCH] Broadcast sensor availability instead of only telling
+ claimants
 
 send_dbus_event() builds its recipient list from data->clients[], so a
 PropertiesChanged for HasAccelerometer only ever reaches clients that
@@ -18,9 +21,15 @@ incapable").
 Availability is not private to claimants. Broadcast it, both when a driver
 appears or disappears and once discovery has finished. Readings stay
 directed at the clients that asked for them.
+---
+ src/iio-sensor-proxy.c | 21 ++++++++++++++-------
+ 1 file changed, 14 insertions(+), 7 deletions(-)
+
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 9c7e8cd..999cb82 100644
 --- a/src/iio-sensor-proxy.c
 +++ b/src/iio-sensor-proxy.c
-@@ -240,7 +240,7 @@
+@@ -240,7 +240,7 @@ send_dbus_event_for_client (SensorData     *data,
  	GVariantBuilder props_builder;
  	GVariant *props_changed = NULL;
  
@@ -29,7 +38,7 @@ directed at the clients that asked for them.
  
  	g_variant_builder_init (&props_builder, G_VARIANT_TYPE ("a{sv}"));
  
-@@ -377,16 +377,21 @@
+@@ -377,16 +377,21 @@ static void
  send_driver_changed_dbus_event (SensorData   *data,
  				DriverType    driver_type)
  {
@@ -55,7 +64,7 @@ directed at the clients that asked for them.
  }
  
  static gboolean
-@@ -782,8 +787,10 @@
+@@ -784,8 +789,10 @@ name_acquired_handler (GDBusConnection *connection,
  	if (!any_sensors_left (data))
  		goto bail;
  

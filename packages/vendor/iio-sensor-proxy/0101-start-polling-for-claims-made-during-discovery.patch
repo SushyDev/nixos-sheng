@@ -1,5 +1,8 @@
-From: sheng-development
-Subject: [PATCH] Start polling for claims made while discovery was still running
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sheng-development <sheng-development@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 17:45:24 +0200
+Subject: [PATCH] Start polling for claims made while discovery was still
+ running
 
 The hotplug path in sensor_changes() already handles a sensor appearing
 under existing claimants -- it checks g_hash_table_size(ht) and calls
@@ -16,9 +19,15 @@ policy in System Settings, a lid event, or a tablet-mode change.
 
 Start polling for any sensor that already has clients once discovery is
 done.
+---
+ src/iio-sensor-proxy.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 999cb82..3ac9052 100644
 --- a/src/iio-sensor-proxy.c
 +++ b/src/iio-sensor-proxy.c
-@@ -787,6 +787,14 @@
+@@ -789,6 +789,14 @@ name_acquired_handler (GDBusConnection *connection,
  	if (!any_sensors_left (data))
  		goto bail;
  
