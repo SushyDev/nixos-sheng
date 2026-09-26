@@ -2,13 +2,32 @@
 
 NixOS and U-Boot for the **Xiaomi Pad 6S Pro 12.4** (`sheng`, SM8550).
 
-Display, audio, sensors, fingerprint, touch, pen and keyboard cover work. Installing
-**wipes the device** and needs an **unlocked bootloader**; no dual-boot.
+A daily-drivable tablet on mainline Linux. Installing **wipes the device** and needs an
+**unlocked bootloader**; no dual-boot.
 
 - **U-Boot** takes over the live boot splash, with a volume-key menu of every NixOS
   generation. [UBOOT.md](UBOOT.md)
 - **NixOS modules** configure the hardware only; users, desktop and services are yours.
   [CONFIGURATION.md](CONFIGURATION.md)
+
+## Hardware
+
+| | | |
+|---|---|---|
+| Display | ✅ | 3048×2032 at 144 Hz over dual DSI with DSC, backlight, Adreno 740 acceleration |
+| Touch and pen | ✅ | Multitouch, Xiaomi pens with pressure, pen battery and pairing |
+| Keyboard cover | ✅ | Authenticated like on Android, backlight, mic-mute LED, turns off when folded back |
+| Speakers | ✅ | Six amps with speaker protection; stereo follows rotation, portrait plays mono |
+| Audio I/O | ✅ | Stereo microphones, headset jack, DisplayPort audio |
+| Sensors | ✅ | Auto-rotate within a second of boot, light, proximity, compass |
+| Fingerprint | ✅ | Through TrustZone, for SDDM, sudo and polkit (1Password too) |
+| Wi-Fi, Bluetooth | ✅ | With the tablet's factory MAC addresses |
+| Battery | ✅ | Charge level, and 120 W fast charging through Xiaomi's charger authentication |
+| USB-C | ✅ | Host mode, hubs, keyboards, DisplayPort out up to 120 Hz |
+| Suspend | ⚠️ | Deep sleep works; the power button cannot wake it yet |
+| Cameras | ⚠️ | Front and main rear work; the second rear needs libcamera support |
+| External monitors | ⚠️ | 120 Hz without DSC; a monitor's USB hub works when it prefers data over quality |
+| HDR | ❌ | |
 
 ## Install
 
